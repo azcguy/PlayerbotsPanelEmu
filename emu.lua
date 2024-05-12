@@ -3,14 +3,14 @@ local _emu = PlayerbotsComsEmulator
 local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
 local _dbchar = nil
-local _master = nil
 
-local _prefixCode = "pp8aj2" -- just something unique from other addons
+local _prefixCode = "pb8aj2" -- just something unique from other addons
 local _handshakeCode = "hs"
+local _logoutCode = "lo"
+
+local _ping = "p"
 local _botStatus = {}
 _botStatus.handshake = false -- reset on logout
-
-
 
 function PlayerbotsComsEmulator:Init()
     print("Starting emulator")
@@ -25,7 +25,7 @@ function PlayerbotsComsEmulator:Update(elapsed)
         if _nextHandshakeTime < _time then
             print("Sending handshake")
             _nextHandshakeTime = _time + 1
-            Send(_handshakeCode)            
+            Send(_handshakeCode) 
         end
     else
         -- start sending periodic reports and responding to queries
@@ -33,16 +33,30 @@ function PlayerbotsComsEmulator:Update(elapsed)
 end
 
 function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
-    if prefix == _prefixCode then
-        if not _botStatus.handshake then
-            if message == _handshakeCode then
-                _botStatus.handshake = true
+    print("msg from: " .. sender .. " : " .. message)
+    if sender == _dbchar.master then
+        if prefix == _prefixCode then
+            if message == _ping then
+                Send(_ping)
+            elseif message == _logoutCode then
+                _botStatus.handshake = false
             end
-        else
-            
-
+    
+            if not _botStatus.handshake then
+                if message == _handshakeCode then
+                    _botStatus.handshake = true
+                end
+            else
+            end
         end
     end
+end
+
+function PlayerbotsComsEmulator:PLAYER_LOGIN()
+end
+
+function PlayerbotsComsEmulator:PLAYER_LOGOUT()
+    Send(_logoutCode)
 end
 
 local function print(t)

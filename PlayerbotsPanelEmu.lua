@@ -45,8 +45,17 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:CreateWindow()
     self:RegisterChatCommand("/ppemu", self.commands)
     self:RegisterEvent("CHAT_MSG_ADDON")
+    self:RegisterEvent("PLAYER_LOGIN")
+    self:RegisterEvent("PLAYER_LOGOUT")
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     _emu:Init()
+end
+
+function PlayerbotsPanelEmu:PLAYER_LOGIN()
+    _emu:PLAYER_LOGIN()
+end
+function PlayerbotsPanelEmu:PLAYER_LOGOUT()
+    _emu:PLAYER_LOGOUT()
 end
 
 function PlayerbotsPanelEmu:PLAYER_ENTERING_WORLD()
