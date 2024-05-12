@@ -1,7 +1,4 @@
 ## PlayerbotsPanelEmulator
-
-#
-![image](/textures/screenshot-1.png)
 Client addon to simulate server side bot communication with PlayerbotsPanel https://github.com/azcguy/PlayerbotsPanel
 This addon is for use with https://github.com/liyunfan1223/mod-playerbots 
 
