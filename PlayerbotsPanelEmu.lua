@@ -75,6 +75,7 @@ end
 
 function PlayerbotsPanelEmu:OnDisable()
     self:SetDebugging(false) 
+    _emu:PLAYER_LOGOUT()
 end
 
 function PlayerbotsPanelEmu:Update(elapsed)
@@ -122,19 +123,20 @@ function PlayerbotsPanelEmu:CreateWindow()
     _frame.tex:SetPoint("TOPLEFT", 0, 0)
 
     local rowHeight = 20
+    local currentY = 0
     local strMaster =  _frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    strMaster:SetPoint("TOPLEFT", 120 + 150, 0)
+    strMaster:SetPoint("TOPLEFT", 120 + 150, currentY)
     strMaster:SetSize(150, rowHeight)
     strMaster:SetText(_dbchar.master)
 
     local ebSetMaster = CreateFrame("EditBox", nil, _frame, "InputBoxTemplate")
-    ebSetMaster:SetPoint("TOPLEFT", 120, 0)
+    ebSetMaster:SetPoint("TOPLEFT", 120,currentY)
     ebSetMaster:SetSize(150,rowHeight)
     ebSetMaster:SetText("")
     ebSetMaster:SetAutoFocus(false)
 
     local btnSetMaster = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
-    btnSetMaster:SetPoint("TOPLEFT", 0, 0)
+    btnSetMaster:SetPoint("TOPLEFT", 0, currentY)
     btnSetMaster:SetSize(120,rowHeight)
     btnSetMaster:SetText("Set master")
     btnSetMaster:SetScript("OnClick", function(self, button, down)
@@ -143,6 +145,25 @@ function PlayerbotsPanelEmu:CreateWindow()
         strMaster:SetText(_dbchar.master)
     end)
     btnSetMaster:RegisterForClicks("AnyUp")
+
+    currentY = currentY - 25
+    local btnSimLogout = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
+    btnSimLogout:SetPoint("TOPLEFT", 0, currentY)
+    btnSimLogout:SetSize(100,rowHeight)
+    btnSimLogout:SetText("Sim Logout")
+    btnSimLogout:SetScript("OnClick", function(self, button, down)
+        _emu:SimLogout()
+    end)
+    btnSimLogout:RegisterForClicks("AnyUp")
+
+    local btnSimLogout = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
+    btnSimLogout:SetPoint("TOPLEFT", 100, currentY)
+    btnSimLogout:SetSize(100, rowHeight)
+    btnSimLogout:SetText("Sim Login")
+    btnSimLogout:SetScript("OnClick", function(self, button, down)
+        _emu:SimLogin()
+    end)
+    btnSimLogout:RegisterForClicks("AnyUp")
 end
 
 

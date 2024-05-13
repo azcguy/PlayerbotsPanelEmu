@@ -3,6 +3,7 @@ local _emu = PlayerbotsComsEmulator
 local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
 local _dbchar = nil
+local _simLogout = false
 
 local _prefixCode = "pb8aj2" -- just something unique from other addons
 local _handshakeCode = "hs"
@@ -21,6 +22,9 @@ local _time = 0
 local _nextHandshakeTime = 0
 function PlayerbotsComsEmulator:Update(elapsed)
     _time = _time + elapsed
+
+    if _simLogout then return end
+
     if not _botStatus.handshake then   -- send handshake every second 
         if _nextHandshakeTime < _time then
             print("Sending handshake")
@@ -52,11 +56,20 @@ function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
     end
 end
 
+function PlayerbotsComsEmulator:SimLogout()
+    Send(_logoutCode)
+    _simLogout = true
+    _botStatus.handshake = false
+end
+
+function PlayerbotsComsEmulator:SimLogin()
+    _simLogout = false
+end
+
 function PlayerbotsComsEmulator:PLAYER_LOGIN()
 end
 
 function PlayerbotsComsEmulator:PLAYER_LOGOUT()
-    Send(_logoutCode)
 end
 
 local function print(t)
