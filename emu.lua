@@ -16,6 +16,7 @@ _botStatus.handshake = false -- reset on logout
 -- ============================================================================================
 
 local MSG_SEPARATOR = ":"
+local NULL_LINK = "~"
 local MSG_SEPARATOR_BYTE = string.byte(":")
 
 local MSG_HEADER = {}
@@ -45,7 +46,7 @@ local function GenerateMessage(header, subtype, id, payload)
         MSG_SEPARATOR,
         string.char(subtype),
         MSG_SEPARATOR,
-        string.format("%05d", id),
+        string.format("%03d", id),
         MSG_SEPARATOR,
         payload})
     SendAddonMessage(_prefixCode, msg, "WHISPER", _dbchar.master)
@@ -97,7 +98,7 @@ function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
         if prefix == _prefixCode then
             -- confirm that the message has valid format
             local header, separator1, subtype, separator2 = strbyte(message, 1, 4)
-            local separator3 = strbyte(message, 10)
+            local separator3 = strbyte(message, 8)
             -- 1 [HEADER] 2 [SEPARATOR] 3 [SUBTYPE] 4 [SEPARATOR] 5 [ID1] 6 [ID2] 7 [ID3] 8 [ID4] 9 [ID5] 10 [SEPARATOR] [PAYLOAD]
             -- s:p:65000:payload
             if separator1 == MSG_SEPARATOR_BYTE and separator2 == MSG_SEPARATOR_BYTE and separator3 == MSG_SEPARATOR_BYTE then
@@ -105,8 +106,8 @@ function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
                 if handlers then
                     local handler = handlers[subtype]
                     if handler then
-                        local id = tonumber(strsub(5, 9))
-                        local payload = strsub(message, 7)
+                        local id = tonumber(strsub(5, 7))
+                        local payload = strsub(message, 9)
                         handler(id, payload)
                     end
                 end
@@ -135,8 +136,10 @@ local function print(t)
     DEFAULT_CHAT_FRAME:AddMessage("EMU: " .. t)
 end
 
-function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, link)
-    local finalLink = link and link or "NULL"
-    local payload = table.concat({tostring(slot), ":", finalLink})
+function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
+    local finalLink = link and link or NULL_LINK
+    local payload = table.concat({tostring(slot), MSG_SEPARATOR, tostring(count), MSG_SEPARATOR, finalLink})
     GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
 end
+
+--function PlayerbotsComsEmulator:GenerateWhoReport(level, location)

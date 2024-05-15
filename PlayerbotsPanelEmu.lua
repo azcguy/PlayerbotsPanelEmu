@@ -65,10 +65,12 @@ end
 
 function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
     local link = nil
+    local count = 0
     if hasItem then
         link = GetInventoryItemLink("player", slot)
+        count = GetInventoryItemCount("player", slot)
     end
-    _emu:GenerateItemEquippedReport(slot, link)
+    _emu:GenerateItemEquippedReport(slot, count, link)
 end
 
 function PlayerbotsPanelEmu:OnEnable()
