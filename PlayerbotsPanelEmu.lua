@@ -48,6 +48,7 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:RegisterEvent("PLAYER_LOGIN")
     self:RegisterEvent("PLAYER_LOGOUT")
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
+    self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     _emu:Init()
 end
 
@@ -60,6 +61,14 @@ end
 
 function PlayerbotsPanelEmu:PLAYER_ENTERING_WORLD()
     _frame:Show()
+end
+
+function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
+    local link = nil
+    if hasItem then
+        link = GetInventoryItemLink("player", slot)
+    end
+    _emu:GenerateItemEquippedReport(slot, link)
 end
 
 function PlayerbotsPanelEmu:OnEnable()
