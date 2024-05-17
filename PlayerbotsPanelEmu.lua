@@ -6,7 +6,7 @@ PlayerbotsPanelEmu:RegisterDB("PlayerbotsPanelEmuDb", "PlayerbotsPanelEmuDbPerCh
 local _frame = PlayerbotsPanelEmuFrame
 local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
-local _dbchar = nil
+local _dbchar = {}
 local _dbaccount = nil
 local _emu = PlayerbotsComsEmulator
 
@@ -94,7 +94,7 @@ function PlayerbotsPanelEmu:Update(elapsed)
 end
 
 function PlayerbotsPanelEmu:ClosePanel()
-	HideUIPanel(PlayerbotsFrame)
+	HideUIPanel(PlayerbotsPanelEmuFrame)
 end
 
 function PlayerbotsPanelEmu:print(t)

@@ -2,42 +2,93 @@ PlayerbotsComsEmulator = {}
 local _emu = PlayerbotsComsEmulator
 local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
-local _dbchar = nil
+local _dbchar = {}
 local _simLogout = false
 
 local _prefixCode = "pb8aj2" -- just something unique from other addons
-local _handshakeCode = "hs"
-local _logoutCode = "lo"
-
-local _ping = "p"
 local _botStatus = {}
+local PLAYER = "player"
 _botStatus.handshake = false -- reset on logout
 
 -- ============================================================================================
+-- ============== Locals optimization, use in hotpaths
+-- ============================================================================================
+
+local _strbyte = string.byte
+local _strchar = string.char
+local _strsplit = strsplit
+local _strsub = string.sub
+local _strlen = string.len
+local _tonumber = tonumber
+local _strformat = string.format
+local _pairs = pairs
+local _tinsert = table.insert
+local _tremove = table.remove
+local _tconcat = table.concat
+local _getn = getn
+local _sendAddonMsg = SendAddonMessage
+local _pow = math.pow
+local _floor = math.floor
+
+-- ============================================================================================
+-- SHARED BETWEEN EMU/BROKER
 
 local MSG_SEPARATOR = ":"
-local NULL_LINK = "~"
-local MSG_SEPARATOR_BYTE = string.byte(":")
-
+local MSG_SEPARATOR_BYTE = _strbyte(":")
+local FLOAT_DOT_BYTE = _strbyte(".")
 local MSG_HEADER = {}
-MSG_HEADER.SYSTEM = string.byte("s")
-MSG_HEADER.REPORT = string.byte("r")
+local NULL_LINK = "~"
+local UTF8_NUM_FIRST = _strbyte("1") -- 49
+local UTF8_NUM_LAST = _strbyte("9") -- 57
+
+MSG_HEADER.SYSTEM = _strbyte("s")
+MSG_HEADER.REPORT = _strbyte("r")
+MSG_HEADER.QUERY = _strbyte("q")
 
 PlayerbotsBrokerReportType = {}
 local REPORT_TYPE = PlayerbotsBrokerReportType
-REPORT_TYPE.ITEM_EQUIPPED = string.byte("g") -- gear item equipped or unequipped
-REPORT_TYPE.CURRENCY = string.byte("c") -- currency changed
-REPORT_TYPE.INVENTORY = string.byte("i") -- inventory changed (bag changed, item added / removed / destroyed)
-REPORT_TYPE.TALENTS = string.byte("t") -- talent learned / spec changed / talents reset
-REPORT_TYPE.SPELLS = string.byte("s") -- spell learned
-REPORT_TYPE.QUEST = string.byte("q") -- single quest accepted, abandoned, changed, completed
+REPORT_TYPE.ITEM_EQUIPPED = _strbyte("g") -- gear item equipped or unequipped
+REPORT_TYPE.CURRENCY = _strbyte("c") -- currency changed
+REPORT_TYPE.INVENTORY = _strbyte("i") -- inventory changed (bag changed, item added / removed / destroyed)
+REPORT_TYPE.TALENTS = _strbyte("t") -- talent learned / spec changed / talents reset
+REPORT_TYPE.SPELLS = _strbyte("s") -- spell learned
+REPORT_TYPE.QUEST = _strbyte("q") -- single quest accepted, abandoned, changed, completed
 
 local SYS_MSG_TYPE = {}
-SYS_MSG_TYPE.HANDSHAKE = string.byte("h")
-SYS_MSG_TYPE.PING = string.byte("p")
-SYS_MSG_TYPE.LOGOUT = string.byte("l")
+SYS_MSG_TYPE.HANDSHAKE = _strbyte("h")
+SYS_MSG_TYPE.PING = _strbyte("p")
+SYS_MSG_TYPE.LOGOUT = _strbyte("l")
+
+
+PlayerbotsBrokerQueryType = {}
+local QUERY_TYPE = PlayerbotsBrokerQueryType
+QUERY_TYPE.WHO = _strbyte("w") -- level, class, spec, location, experience and more
+QUERY_TYPE.CURRENCY = _strbyte("c") -- money, honor, tokens
+QUERY_TYPE.GEAR = _strbyte("g") -- only what is equipped
+QUERY_TYPE.INVENTORY = _strbyte("i") -- whats in the bags and bags themselves
+QUERY_TYPE.TALENTS = _strbyte("t") -- talents and talent points 
+QUERY_TYPE.SPELLS = _strbyte("s") -- spellbook
+QUERY_TYPE.QUESTS = _strbyte("q") -- all quests
+QUERY_TYPE.STRATEGIES = _strbyte("S")
+
+PlayerbotsBrokerQueryOpcode = {}
+local QUERY_OPCODE = PlayerbotsBrokerQueryOpcode
+QUERY_OPCODE.PROGRESS = _strbyte("p") -- query is in progress
+QUERY_OPCODE.FINAL = _strbyte("f") -- final message of the query, contains the final payload, and closes query
+-- bytes 49 - 57 are errors
+
+
+PlayerbotsBrokerCommandType = {}
+local CMD_TYPE = PlayerbotsBrokerCommandType
+CMD_TYPE.SUMMON = 0 
+CMD_TYPE.STAY = 1
+CMD_TYPE.FOLLOW = 2
 
 -- ============================================================================================
+
+local function inverseLerp(a, b, t)
+    return (t-a)/(b-a)
+end
 
 local function GenerateMessage(header, subtype, id, payload)
     if not id then id = 0 end
@@ -50,6 +101,7 @@ local function GenerateMessage(header, subtype, id, payload)
         MSG_SEPARATOR,
         payload})
     SendAddonMessage(_prefixCode, msg, "WHISPER", _dbchar.master)
+    print("|cff7afffb >> MASTER |r " ..  msg)
 end
 
 function PlayerbotsComsEmulator:Init()
@@ -88,27 +140,120 @@ SYS_MSG_HANDLERS[SYS_MSG_TYPE.LOGOUT] = function(id, payload)
     _botStatus.handshake = false
 end
 
+local QUERY_MSG_HANDLERS = {}
+QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
+    -- CLASS(token):LEVEL(1-80):MAIN_SPEC_NAME(i.e. Retribution):SECONDARY_SPEC_NAME(i.e. Retribution or a null string ~):SECOND_SPEC_UNLOCKED(0-1):ACTIVE_SPEC(1-2) >
+    -- > :POINTS1:POINTS2:POINTS3:POINTS4:POINTS5:POINTS6:FLOAT_EXP:LOCATION
+    -- PALADIN:65:Retribution:Protection:1:1:5:10:31:40:5:10:0.89:Blasted Lands 
+    local _, class = UnitClass(PLAYER)
+    local second_spec_unlocked = GetNumTalentGroups(false, false) > 1 and 1 or 0
+    local active_spec = GetActiveTalentGroup(false, false)
+    local name1, icon, points1, background, previewPoints = GetTalentTabInfo(1, nil, nil, 1) -- Return values id, description, and isUnlocked were added in patch 4.0.1 despite what API says
+    print(points1)
+    local name2, icon, points2, background, previewPoints = GetTalentTabInfo(2, false, false, 1)
+    print(points2)
+    local name3, icon, points3, background, previewPoints = GetTalentTabInfo(3, false, false, 1)
+    print(points3)
+    local level = UnitLevel(PLAYER)
+    local zone = GetZoneText()
+    local floatXp = inverseLerp(0, UnitXPMax(PLAYER), UnitXP(PLAYER))
+    local main_talents_name = name1
+    if points2 > points1 then
+        main_talents_name = name2
+    end
+    if points3 > points2 then
+        main_talents_name = name3
+    end
+    local points4 = 0 -- second spec
+    local points5 = 0
+    local points6 = 0
+    local second_talents_name = NULL_LINK
+    print("second:" .. second_spec_unlocked)
+    if second_spec_unlocked > 0 then
+        local name4, icon, points4, background, previewPoints = GetTalentTabInfo(1, false, false, 2)
+        local name5, _, points5, _, _ = GetTalentTabInfo(2, false, false, 2)
+        local name6, _, points6, _, _ = GetTalentTabInfo(3, false, false, 2)
+        second_talents_name = name4
+        if points5 > points4 then
+            second_talents_name = name5
+        end
+        if points6 > points5 then
+            second_talents_name = name6
+        end
+    end
+    local payload = table.concat({
+        class,
+        MSG_SEPARATOR,
+        level,
+        MSG_SEPARATOR,
+        main_talents_name,
+        MSG_SEPARATOR,
+        second_talents_name,
+        MSG_SEPARATOR,
+        second_spec_unlocked,
+        MSG_SEPARATOR,
+        active_spec, -- dualspec
+        MSG_SEPARATOR,
+        points1,
+        MSG_SEPARATOR,
+        points2,
+        MSG_SEPARATOR,
+        points3,
+        MSG_SEPARATOR,
+        points4,
+        MSG_SEPARATOR,
+        points5,
+        MSG_SEPARATOR,
+        points6,
+        MSG_SEPARATOR,
+        floatXp,
+        MSG_SEPARATOR,
+        zone
+    })
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+end
+
 local MSG_HANDLERS = {}
 MSG_HANDLERS[MSG_HEADER.SYSTEM] = SYS_MSG_HANDLERS
-MSG_HANDLERS[MSG_HEADER.REPORT] = REP_MSG_HANDLERS
+MSG_HANDLERS[MSG_HEADER.REPORT] = {}
 
 function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
-    print("MASTER >> " .. message)
+    print("|cffb4ff29 << MASTER |r " .. message)
     if sender == _dbchar.master then
         if prefix == _prefixCode then
             -- confirm that the message has valid format
-            local header, separator1, subtype, separator2 = strbyte(message, 1, 4)
-            local separator3 = strbyte(message, 8)
-            -- 1 [HEADER] 2 [SEPARATOR] 3 [SUBTYPE] 4 [SEPARATOR] 5 [ID1] 6 [ID2] 7 [ID3] 8 [ID4] 9 [ID5] 10 [SEPARATOR] [PAYLOAD]
-            -- s:p:65000:payload
-            if separator1 == MSG_SEPARATOR_BYTE and separator2 == MSG_SEPARATOR_BYTE and separator3 == MSG_SEPARATOR_BYTE then
-                local handlers = MSG_HANDLERS[header]
-                if handlers then
-                    local handler = handlers[subtype]
-                    if handler then
-                        local id = tonumber(strsub(5, 7))
-                        local payload = strsub(message, 9)
-                        handler(id, payload)
+            local header, sep1, subtype, sep2, idb1, idb2, idb3, sep3 = _strbyte(message, 1, 8)
+            local _separatorByte = MSG_SEPARATOR_BYTE
+            -- BYTES
+            -- 1 [HEADER] 2 [SEPARATOR] 3 [SUBTYPE/QUERY_OPCODE] 4 [SEPARATOR] 5-6-7 [ID] 8 [SEPARATOR] 9 [PAYLOAD / NEXT QUERY]
+            -- s:p:999:payload
+            if sep1 == _separatorByte and sep2 == _separatorByte and sep3 == _separatorByte then
+                if header == MSG_HEADER.QUERY then
+                    -- here we treat queries differently because master can pack multiple queries into a single message
+                    -- total length of a query is 8 bytes, so in a single message we can pack 30 queries (taking into account trailing sep) (255 max length/8)
+                    for offset = 0, 29 do
+                        if offset > 0 then
+                            header, _, subtype, _, idb1, idb2, idb3, _ = _strbyte(message, 8 * offset, 8 * (offset + 1))
+                        end
+                        if header and header == MSG_HEADER.QUERY then
+                            local qhandler = QUERY_MSG_HANDLERS[subtype]
+                            if qhandler then
+                                local id = ((idb1-48) * 100) + ((idb2-48) * 10) + (idb3-48)
+                                qhandler(id, nil)
+                            end
+                        else
+                            break
+                        end
+                    end
+                else
+                    local handlers = MSG_HANDLERS[header]
+                    if handlers then
+                        local handler = handlers[subtype]
+                        if handler then
+                            local id = ((idb1-48) * 100) + ((idb2-48) * 10) + (idb3-48)
+                            local payload = _strsub(message, 9)
+                            handler(id, payload)
+                        end
                     end
                 end
             end
@@ -141,5 +286,6 @@ function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
     local payload = table.concat({tostring(slot), MSG_SEPARATOR, tostring(count), MSG_SEPARATOR, finalLink})
     GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
 end
+
 
 --function PlayerbotsComsEmulator:GenerateWhoReport(level, location)
