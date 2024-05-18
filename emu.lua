@@ -87,6 +87,9 @@ CMD_TYPE.FOLLOW = 2
 -- ============================================================================================
 
 local function inverseLerp(a, b, t)
+    a = a * 1.0
+    b = b * 1.0
+    t = t * 1.0
     return (t-a)/(b-a)
 end
 
@@ -142,55 +145,31 @@ end
 
 local QUERY_MSG_HANDLERS = {}
 QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
-    -- CLASS(token):LEVEL(1-80):MAIN_SPEC_NAME(i.e. Retribution):SECONDARY_SPEC_NAME(i.e. Retribution or a null string ~):SECOND_SPEC_UNLOCKED(0-1):ACTIVE_SPEC(1-2) >
-    -- > :POINTS1:POINTS2:POINTS3:POINTS4:POINTS5:POINTS6:FLOAT_EXP:LOCATION
-    -- PALADIN:65:Retribution:Protection:1:1:5:10:31:40:5:10:0.89:Blasted Lands 
+    -- CLASS(token):LEVEL(1-80):SECOND_SPEC_UNLOCKED(0-1):ACTIVE_SPEC(1-2):POINTS1:POINTS2:POINTS3:POINTS4:POINTS5:POINTS6:FLOAT_EXP:LOCATION
+    -- PALADIN:65:1:1:5:10:31:40:5:10:0.89:Blasted Lands 
     local _, class = UnitClass(PLAYER)
-    local second_spec_unlocked = GetNumTalentGroups(false, false) > 1 and 1 or 0
+    local spec2_unlocked = GetNumTalentGroups(false, false) > 1 and 1 or 0
     local active_spec = GetActiveTalentGroup(false, false)
-    local name1, icon, points1, background, previewPoints = GetTalentTabInfo(1, nil, nil, 1) -- Return values id, description, and isUnlocked were added in patch 4.0.1 despite what API says
-    print(points1)
-    local name2, icon, points2, background, previewPoints = GetTalentTabInfo(2, false, false, 1)
-    print(points2)
-    local name3, icon, points3, background, previewPoints = GetTalentTabInfo(3, false, false, 1)
-    print(points3)
+    local _, _, points1,_, _ = GetTalentTabInfo(1, nil, nil, 1) -- Return values id, description, and isUnlocked were added in patch 4.0.1 despite what API says
+    local _, _, points2,_, _ = GetTalentTabInfo(2, false, false, 1)
+    local _, _, points3,_, _ = GetTalentTabInfo(3, false, false, 1)
     local level = UnitLevel(PLAYER)
     local zone = GetZoneText()
     local floatXp = inverseLerp(0, UnitXPMax(PLAYER), UnitXP(PLAYER))
-    local main_talents_name = name1
-    if points2 > points1 then
-        main_talents_name = name2
-    end
-    if points3 > points2 then
-        main_talents_name = name3
-    end
     local points4 = 0 -- second spec
     local points5 = 0
     local points6 = 0
-    local second_talents_name = NULL_LINK
-    print("second:" .. second_spec_unlocked)
-    if second_spec_unlocked > 0 then
-        local name4, icon, points4, background, previewPoints = GetTalentTabInfo(1, false, false, 2)
-        local name5, _, points5, _, _ = GetTalentTabInfo(2, false, false, 2)
-        local name6, _, points6, _, _ = GetTalentTabInfo(3, false, false, 2)
-        second_talents_name = name4
-        if points5 > points4 then
-            second_talents_name = name5
-        end
-        if points6 > points5 then
-            second_talents_name = name6
-        end
+    if spec2_unlocked > 0 then
+        _, _, points4, _, _ = GetTalentTabInfo(1, false, false, 2)
+        _, _, points5, _, _ = GetTalentTabInfo(2, false, false, 2)
+        _, _, points6, _, _ = GetTalentTabInfo(3, false, false, 2)
     end
     local payload = table.concat({
         class,
         MSG_SEPARATOR,
         level,
         MSG_SEPARATOR,
-        main_talents_name,
-        MSG_SEPARATOR,
-        second_talents_name,
-        MSG_SEPARATOR,
-        second_spec_unlocked,
+        spec2_unlocked,
         MSG_SEPARATOR,
         active_spec, -- dualspec
         MSG_SEPARATOR,
@@ -230,7 +209,7 @@ function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
             if sep1 == _separatorByte and sep2 == _separatorByte and sep3 == _separatorByte then
                 if header == MSG_HEADER.QUERY then
                     -- here we treat queries differently because master can pack multiple queries into a single message
-                    -- total length of a query is 8 bytes, so in a single message we can pack 30 queries (taking into account trailing sep) (255 max length/8)
+                    -- total length of a query is 8 bytes, so in a single message we can pack 30 queries (taking into account trailing sep) (254 max length/8)
                     for offset = 0, 29 do
                         if offset > 0 then
                             header, _, subtype, _, idb1, idb2, idb3, _ = _strbyte(message, 8 * offset, 8 * (offset + 1))
