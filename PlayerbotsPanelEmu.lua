@@ -49,7 +49,17 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:RegisterEvent("PLAYER_LOGOUT")
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    self:RegisterEvent("PLAYER_LEVEL_UP")
     _emu:Init()
+
+    local botText = CreateFrame("Frame", nil, UIParent)
+    botText:SetSize(1280, 300)
+    botText:SetPoint("TOPLEFT", 0, 0)
+    botText.text = botText:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    botText.text:SetAllPoints()
+    botText.text:SetText("B O T")
+    botText.text:SetTextHeight(300)
+    botText.text:SetTextColor(1, 0, 1 )
 end
 
 function PlayerbotsPanelEmu:PLAYER_LOGIN()
@@ -71,6 +81,10 @@ function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
         count = GetInventoryItemCount("player", slot)
     end
     _emu:GenerateItemEquippedReport(slot, count, link)
+end
+
+function PlayerbotsPanelEmu:PLAYER_LEVEL_UP()
+    _emu:PLAYER_LEVEL_UP()
 end
 
 function PlayerbotsPanelEmu:OnEnable()
@@ -112,6 +126,47 @@ function PlayerbotsPanelEmu:OnClick()
         _frame:Show()
     end
 end
+
+local function MakeButton(text, x, y, sx, sy, onClick)
+    local btn = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
+    btn:SetPoint("TOPLEFT", x, y)
+    btn:SetSize(sx,sy)
+    btn:SetText(text)
+    btn:SetScript("OnClick", function(self, button, down)
+        onClick()
+    end)
+    btn:RegisterForClicks("AnyUp")
+end
+
+
+
+local bags = {}
+
+local function CacheInventory()
+    
+end
+
+local function  DumpBagLinks()
+    for bag = 0, 4 do
+        local name = GetBagName(bag)
+        if name then
+            local _, link, _, _, _, _, _, _, _, _, _ = GetItemInfo(name)
+            print(link)
+        end
+    end
+end
+
+local function  GetBagInfo(bagid)
+    for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+        for slot = 1, GetContainerNumSlots(bag) do
+            local itemLink = GetContainerItemLink(bag, slot)
+            if itemLink then
+                print(bag, slot, itemLink)
+            end
+        end
+    end
+end
+
 
 function PlayerbotsPanelEmu:CreateWindow()
     UIPanelWindows[_frame:GetName()] = { area = "center", pushable = 0, whileDead = 1 }
@@ -158,24 +213,8 @@ function PlayerbotsPanelEmu:CreateWindow()
     btnSetMaster:RegisterForClicks("AnyUp")
 
     currentY = currentY - 25
-    local btnSimLogout = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
-    btnSimLogout:SetPoint("TOPLEFT", 0, currentY)
-    btnSimLogout:SetSize(100,rowHeight)
-    btnSimLogout:SetText("Sim Logout")
-    btnSimLogout:SetScript("OnClick", function(self, button, down)
-        _emu:SimLogout()
-    end)
-    btnSimLogout:RegisterForClicks("AnyUp")
+    MakeButton("Sim Logout", 0, currentY, 100, rowHeight, _emu.SimLogout)
+    MakeButton("Sim Login", 100, currentY, 100, rowHeight, _emu.SimLogin)
+    MakeButton("Dump Bag Links", 200, currentY, 100, rowHeight, DumpBagLinks)
 
-    local btnSimLogout = CreateFrame("Button", nil, _frame, "UIPanelButtonTemplate")
-    btnSimLogout:SetPoint("TOPLEFT", 100, currentY)
-    btnSimLogout:SetSize(100, rowHeight)
-    btnSimLogout:SetText("Sim Login")
-    btnSimLogout:SetScript("OnClick", function(self, button, down)
-        _emu:SimLogin()
-    end)
-    btnSimLogout:RegisterForClicks("AnyUp")
 end
-
-
-

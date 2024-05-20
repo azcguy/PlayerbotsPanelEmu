@@ -53,12 +53,13 @@ REPORT_TYPE.INVENTORY = _strbyte("i") -- inventory changed (bag changed, item ad
 REPORT_TYPE.TALENTS = _strbyte("t") -- talent learned / spec changed / talents reset
 REPORT_TYPE.SPELLS = _strbyte("s") -- spell learned
 REPORT_TYPE.QUEST = _strbyte("q") -- single quest accepted, abandoned, changed, completed
+REPORT_TYPE.EXPERIENCE = _strbyte("e") -- level, experience
+REPORT_TYPE.STATS = _strbyte("S") -- all stats and combat ratings
 
 local SYS_MSG_TYPE = {}
 SYS_MSG_TYPE.HANDSHAKE = _strbyte("h")
 SYS_MSG_TYPE.PING = _strbyte("p")
 SYS_MSG_TYPE.LOGOUT = _strbyte("l")
-
 
 PlayerbotsBrokerQueryType = {}
 local QUERY_TYPE = PlayerbotsBrokerQueryType
@@ -86,6 +87,22 @@ CMD_TYPE.FOLLOW = 2
 
 -- ============================================================================================
 
+local function _eval(eval, ifTrue, ifFalse)
+    if eval then
+        return ifTrue
+    else
+        return ifFalse
+    end
+end
+
+local function _eval01(eval)
+    if eval then
+        return 1
+    else
+        return 0
+    end
+end
+
 local function inverseLerp(a, b, t)
     a = a * 1.0
     b = b * 1.0
@@ -105,6 +122,19 @@ local function GenerateMessage(header, subtype, id, payload)
         payload})
     SendAddonMessage(_prefixCode, msg, "WHISPER", _dbchar.master)
     print("|cff7afffb >> MASTER |r " ..  msg)
+end
+
+local function GenerateExperienceReport()
+    local level = UnitLevel(PLAYER)
+    local floatXp = inverseLerp(0.0, UnitXPMax(PLAYER), UnitXP(PLAYER))
+    local payload = _tconcat({level, floatXp}, MSG_SEPARATOR)
+    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.EXPERIENCE, 0, payload)
+end
+
+function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
+    local finalLink = _eval(link, link, NULL_LINK)
+    local payload = _tconcat({slot, count, finalLink}, MSG_SEPARATOR)
+    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
 end
 
 function PlayerbotsComsEmulator:Init()
@@ -148,14 +178,14 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
     -- CLASS(token):LEVEL(1-80):SECOND_SPEC_UNLOCKED(0-1):ACTIVE_SPEC(1-2):POINTS1:POINTS2:POINTS3:POINTS4:POINTS5:POINTS6:FLOAT_EXP:LOCATION
     -- PALADIN:65:1:1:5:10:31:40:5:10:0.89:Blasted Lands 
     local _, class = UnitClass(PLAYER)
-    local spec2_unlocked = GetNumTalentGroups(false, false) > 1 and 1 or 0
+    local spec2_unlocked = _eval01(GetNumTalentGroups(false, false) > 1)
     local active_spec = GetActiveTalentGroup(false, false)
     local _, _, points1,_, _ = GetTalentTabInfo(1, nil, nil, 1) -- Return values id, description, and isUnlocked were added in patch 4.0.1 despite what API says
     local _, _, points2,_, _ = GetTalentTabInfo(2, false, false, 1)
     local _, _, points3,_, _ = GetTalentTabInfo(3, false, false, 1)
     local level = UnitLevel(PLAYER)
     local zone = GetZoneText()
-    local floatXp = inverseLerp(0, UnitXPMax(PLAYER), UnitXP(PLAYER))
+    local floatXp = inverseLerp(0.0, UnitXPMax(PLAYER), UnitXP(PLAYER))
     local points4 = 0 -- second spec
     local points5 = 0
     local points6 = 0
@@ -164,32 +194,73 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
         _, _, points5, _, _ = GetTalentTabInfo(2, false, false, 2)
         _, _, points6, _, _ = GetTalentTabInfo(3, false, false, 2)
     end
-    local payload = table.concat({
+    local payload = _tconcat({
         class,
-        MSG_SEPARATOR,
         level,
-        MSG_SEPARATOR,
         spec2_unlocked,
-        MSG_SEPARATOR,
         active_spec, -- dualspec
-        MSG_SEPARATOR,
         points1,
-        MSG_SEPARATOR,
         points2,
-        MSG_SEPARATOR,
         points3,
-        MSG_SEPARATOR,
         points4,
-        MSG_SEPARATOR,
         points5,
-        MSG_SEPARATOR,
         points6,
-        MSG_SEPARATOR,
         floatXp,
-        MSG_SEPARATOR,
         zone
-    })
+    }, MSG_SEPARATOR)
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+end
+
+QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
+    -- Inventory slots
+    -- INVSLOT_AMMO    = 0;
+    -- INVSLOT_HEAD    = 1; INVSLOT_FIRST_EQUIPPED = INVSLOT_HEAD;
+    -- INVSLOT_NECK    = 2;
+    -- INVSLOT_SHOULDER  = 3;
+    -- INVSLOT_BODY    = 4;
+    -- INVSLOT_CHEST   = 5;
+    -- INVSLOT_WAIST   = 6;
+    -- INVSLOT_LEGS    = 7;
+    -- INVSLOT_FEET    = 8;
+    -- INVSLOT_WRIST   = 9;
+    -- INVSLOT_HAND    = 10;
+    -- INVSLOT_FINGER1   = 11;
+    -- INVSLOT_FINGER2   = 12;
+    -- INVSLOT_TRINKET1  = 13;
+    -- INVSLOT_TRINKET2  = 14;
+    -- INVSLOT_BACK    = 15;
+    -- INVSLOT_MAINHAND  = 16;
+    -- INVSLOT_OFFHAND   = 17;
+    -- INVSLOT_RANGED    = 18;
+    -- INVSLOT_TABARD    = 19;
+    -- INVSLOT_LAST_EQUIPPED = INVSLOT_TABARD;
+    for i=0, 19 do
+        local link = GetInventoryItemLink(PLAYER, i)
+        if link then
+            local count = GetInventoryItemCount(PLAYER, i)
+            local payload = _tconcat({i, count, link}, MSG_SEPARATOR)
+            if i == 19 then
+                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+            else
+                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+            end
+        end
+    end
+end
+
+QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
+    for i=0, 19 do
+        local link = GetInventoryItemLink(PLAYER, i)
+        if link then
+            local count = GetInventoryItemCount(PLAYER, i)
+            local payload = _tconcat({i, count, link}, MSG_SEPARATOR)
+            if i == 19 then
+                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+            else
+                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+            end
+        end
+    end
 end
 
 local MSG_HANDLERS = {}
@@ -256,15 +327,15 @@ end
 function PlayerbotsComsEmulator:PLAYER_LOGOUT()
 end
 
+function PlayerbotsComsEmulator:PLAYER_LEVEL_UP()
+    GenerateExperienceReport()
+end
+
 local function print(t)
     DEFAULT_CHAT_FRAME:AddMessage("EMU: " .. t)
 end
 
-function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
-    local finalLink = link and link or NULL_LINK
-    local payload = table.concat({tostring(slot), MSG_SEPARATOR, tostring(count), MSG_SEPARATOR, finalLink})
-    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
-end
+
 
 
 --function PlayerbotsComsEmulator:GenerateWhoReport(level, location)
