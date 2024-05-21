@@ -29,6 +29,7 @@ local _getn = getn
 local _sendAddonMsg = SendAddonMessage
 local _pow = math.pow
 local _floor = math.floor
+local _pbuffer = {} -- payload buffer
 
 -- ============================================================================================
 -- SHARED BETWEEN EMU/BROKER
@@ -41,41 +42,42 @@ local NULL_LINK = "~"
 local UTF8_NUM_FIRST = _strbyte("1") -- 49
 local UTF8_NUM_LAST = _strbyte("9") -- 57
 
-MSG_HEADER.SYSTEM = _strbyte("s")
-MSG_HEADER.REPORT = _strbyte("r")
-MSG_HEADER.QUERY = _strbyte("q")
+MSG_HEADER.SYSTEM =             _strbyte("s")
+MSG_HEADER.REPORT =             _strbyte("r")
+MSG_HEADER.QUERY =              _strbyte("q")
+MSG_HEADER.COMMAND =            _strbyte("c")
 
 PlayerbotsBrokerReportType = {}
 local REPORT_TYPE = PlayerbotsBrokerReportType
-REPORT_TYPE.ITEM_EQUIPPED = _strbyte("g") -- gear item equipped or unequipped
-REPORT_TYPE.CURRENCY = _strbyte("c") -- currency changed
-REPORT_TYPE.INVENTORY = _strbyte("i") -- inventory changed (bag changed, item added / removed / destroyed)
-REPORT_TYPE.TALENTS = _strbyte("t") -- talent learned / spec changed / talents reset
-REPORT_TYPE.SPELLS = _strbyte("s") -- spell learned
-REPORT_TYPE.QUEST = _strbyte("q") -- single quest accepted, abandoned, changed, completed
-REPORT_TYPE.EXPERIENCE = _strbyte("e") -- level, experience
-REPORT_TYPE.STATS = _strbyte("S") -- all stats and combat ratings
+REPORT_TYPE.ITEM_EQUIPPED =     _strbyte("g") -- gear item equipped or unequipped
+REPORT_TYPE.CURRENCY =          _strbyte("c") -- currency changed
+REPORT_TYPE.INVENTORY =         _strbyte("i") -- inventory changed (bag changed, item added / removed / destroyed)
+REPORT_TYPE.TALENTS =           _strbyte("t") -- talent learned / spec changed / talents reset
+REPORT_TYPE.SPELLS =            _strbyte("s") -- spell learned
+REPORT_TYPE.QUEST =             _strbyte("q") -- single quest accepted, abandoned, changed, completed
+REPORT_TYPE.EXPERIENCE =        _strbyte("e") -- level, experience
+REPORT_TYPE.STATS =             _strbyte("S") -- all stats and combat ratings
 
 local SYS_MSG_TYPE = {}
-SYS_MSG_TYPE.HANDSHAKE = _strbyte("h")
-SYS_MSG_TYPE.PING = _strbyte("p")
-SYS_MSG_TYPE.LOGOUT = _strbyte("l")
+SYS_MSG_TYPE.HANDSHAKE =        _strbyte("h")
+SYS_MSG_TYPE.PING =             _strbyte("p")
+SYS_MSG_TYPE.LOGOUT =           _strbyte("l")
 
 PlayerbotsBrokerQueryType = {}
 local QUERY_TYPE = PlayerbotsBrokerQueryType
-QUERY_TYPE.WHO = _strbyte("w") -- level, class, spec, location, experience and more
-QUERY_TYPE.CURRENCY = _strbyte("c") -- money, honor, tokens
-QUERY_TYPE.GEAR = _strbyte("g") -- only what is equipped
-QUERY_TYPE.INVENTORY = _strbyte("i") -- whats in the bags and bags themselves
-QUERY_TYPE.TALENTS = _strbyte("t") -- talents and talent points 
-QUERY_TYPE.SPELLS = _strbyte("s") -- spellbook
-QUERY_TYPE.QUESTS = _strbyte("q") -- all quests
-QUERY_TYPE.STRATEGIES = _strbyte("S")
+QUERY_TYPE.WHO        =         _strbyte("w") -- level, class, spec, location, experience and more
+QUERY_TYPE.CURRENCY   =         _strbyte("c") -- money, honor, tokens
+QUERY_TYPE.GEAR       =         _strbyte("g") -- only what is equipped
+QUERY_TYPE.INVENTORY  =         _strbyte("i") -- whats in the bags and bags themselves
+QUERY_TYPE.TALENTS    =         _strbyte("t") -- talents and talent points 
+QUERY_TYPE.SPELLS     =         _strbyte("s") -- spellbook
+QUERY_TYPE.QUESTS     =         _strbyte("q") -- all quests
+QUERY_TYPE.STRATEGIES =         _strbyte("S")
 
 PlayerbotsBrokerQueryOpcode = {}
 local QUERY_OPCODE = PlayerbotsBrokerQueryOpcode
-QUERY_OPCODE.PROGRESS = _strbyte("p") -- query is in progress
-QUERY_OPCODE.FINAL = _strbyte("f") -- final message of the query, contains the final payload, and closes query
+QUERY_OPCODE.PROGRESS =         _strbyte("p") -- query is in progress
+QUERY_OPCODE.FINAL    =         _strbyte("f") -- final message of the query, contains the final payload, and closes query
 -- bytes 49 - 57 are errors
 
 
@@ -239,28 +241,35 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
         if link then
             local count = GetInventoryItemCount(PLAYER, i)
             local payload = _tconcat({i, count, link}, MSG_SEPARATOR)
-            if i == 19 then
-                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
-            else
-                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
-            end
+            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
         end
     end
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
 end
 
 QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
-    for i=0, 19 do
-        local link = GetInventoryItemLink(PLAYER, i)
-        if link then
-            local count = GetInventoryItemCount(PLAYER, i)
-            local payload = _tconcat({i, count, link}, MSG_SEPARATOR)
-            if i == 19 then
-                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
-            else
+    for bag = 1, 4 do
+        local name = GetBagName(bag)
+        if name then 
+            local slots = GetContainerNumSlots(bag)
+            local _, link, _, _, _, _, _, _, _, _, _ = GetItemInfo(name)
+            local payload = _tconcat({"b", tostring(bag), tostring(slots), link }, MSG_SEPARATOR)
+            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+        end
+    end
+
+    for bag = 0, 4 do
+        local slots = GetContainerNumSlots(bag)
+        for slot = 1, slots do
+            local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bag, slot)
+            if link then
+                local payload = _tconcat({"i", tostring(bag), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
                 GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
             end
         end
     end
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
 end
 
 local MSG_HANDLERS = {}

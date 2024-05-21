@@ -138,8 +138,6 @@ local function MakeButton(text, x, y, sx, sy, onClick)
     btn:RegisterForClicks("AnyUp")
 end
 
-
-
 local bags = {}
 
 local function CacheInventory()
@@ -156,16 +154,6 @@ local function  DumpBagLinks()
     end
 end
 
-local function  GetBagInfo(bagid)
-    for bag = BACKPACK_CONTAINER, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-        for slot = 1, GetContainerNumSlots(bag) do
-            local itemLink = GetContainerItemLink(bag, slot)
-            if itemLink then
-                print(bag, slot, itemLink)
-            end
-        end
-    end
-end
 
 
 function PlayerbotsPanelEmu:CreateWindow()
