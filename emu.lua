@@ -383,6 +383,9 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
         local name = GetBagName(bagSlot)
         if name then
             local size = GetContainerNumSlots(bagSlot)
+            if size == nil then
+                size = 0
+            end
             local _, link, _, _, _, _, _, _, _, _, _ = GetItemInfo(name)
             if bagState.size ~= size then
                 bagChanged = true
@@ -435,6 +438,9 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
     else -- if bag didnt change, only report items that changed
         for slot = 1, size do
             local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bagSlot, slot)
+            if count == nil then
+                count = 0
+            end
             local itemState = bagState.contents[slot]
             if not itemState then
                 itemState = {
@@ -463,7 +469,7 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
             itemState.link = link
             itemState.count = count
             if not silent and shouldReport then
-                local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
+                local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), _eval(link, link, NULL_LINK) }, MSG_SEPARATOR)
                 GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
             end
         end
