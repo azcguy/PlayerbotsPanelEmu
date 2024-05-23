@@ -50,6 +50,7 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
     self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     self:RegisterEvent("PLAYER_LEVEL_UP")
+    self:RegisterEvent("BAG_UPDATE")
     _emu:Init()
 
     local botText = CreateFrame("Frame", nil, UIParent)
@@ -62,6 +63,9 @@ function PlayerbotsPanelEmu:OnInitialize()
     botText.text:SetTextColor(1, 0, 1 )
 end
 
+function PlayerbotsPanelEmu:BAG_UPDATE(bagID)
+    _emu.SetBagChanged(bagID)
+end
 function PlayerbotsPanelEmu:PLAYER_LOGIN()
     _emu:PLAYER_LOGIN()
 end
@@ -204,5 +208,6 @@ function PlayerbotsPanelEmu:CreateWindow()
     MakeButton("Sim Logout", 0, currentY, 100, rowHeight, _emu.SimLogout)
     MakeButton("Sim Login", 100, currentY, 100, rowHeight, _emu.SimLogin)
     MakeButton("Dump Bag Links", 200, currentY, 100, rowHeight, DumpBagLinks)
+    MakeButton("Scan bags", 300, currentY, 100, rowHeight, _emu.ScanBags)
 
 end

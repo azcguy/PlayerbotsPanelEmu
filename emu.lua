@@ -4,6 +4,7 @@ local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
 local _dbchar = {}
 local _simLogout = false
+local _updateHandler = PlayerbotsPanelUpdateHandler
 
 local _prefixCode = "pb8aj2" -- just something unique from other addons
 local _botStatus = {}
@@ -89,6 +90,22 @@ CMD_TYPE.FOLLOW = 2
 
 -- ============================================================================================
 
+local _changedBags = {}
+local _shouldScanBags = false
+local _bagstates = {}
+
+for i=-2, 11 do
+    local size = 0
+    if i == -2 then size = 32 end -- -2 keychain
+    if i == -1 then size = 28 end -- -1 bank space
+    if i == 0 then size = 16 end  --  0 backpack
+    _bagstates[i] = {
+        link = nil,
+        size = size,
+        contents = {}
+    }
+end
+
 local function _eval(eval, ifTrue, ifFalse)
     if eval then
         return ifTrue
@@ -142,10 +159,13 @@ end
 function PlayerbotsComsEmulator:Init()
     print("Starting emulator")
     _dbchar = PlayerbotsPanelEmu.db.char
+    PlayerbotsComsEmulator.ScanBags(false)
 end
 
 local _time = 0
 local _nextHandshakeTime = 0
+local _nextBagScanTime = 0
+local _bagScanTickrate = 0.1
 function PlayerbotsComsEmulator:Update(elapsed)
     _time = _time + elapsed
 
@@ -158,7 +178,12 @@ function PlayerbotsComsEmulator:Update(elapsed)
             GenerateMessage(MSG_HEADER.SYSTEM, SYS_MSG_TYPE.HANDSHAKE)
         end
     else
-        -- start sending periodic reports and responding to queries
+        if _nextBagScanTime < _time then
+            _nextBagScanTime = _time + _bagScanTickrate
+            for i = 0, 4 do
+                PlayerbotsComsEmulator.ScanBagChanges(i, false)
+            end
+        end
     end
 end
 
@@ -340,11 +365,119 @@ function PlayerbotsComsEmulator:PLAYER_LEVEL_UP()
     GenerateExperienceReport()
 end
 
-local function print(t)
-    DEFAULT_CHAT_FRAME:AddMessage("EMU: " .. t)
+
+
+
+function PlayerbotsComsEmulator.SetBagChanged(bagSlot)
+    if bagSlot >= 0 then
+        _changedBags[bagSlot] = true
+    end
 end
 
+function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
+    local bagState = _bagstates[bagSlot]
+    local specialBag = bagSlot <= 0
+    local bagChanged = false
 
+    if not specialBag then
+        local name = GetBagName(bagSlot)
+        if name then
+            local size = GetContainerNumSlots(bagSlot)
+            local _, link, _, _, _, _, _, _, _, _, _ = GetItemInfo(name)
+            if bagState.size ~= size then
+                bagChanged = true
+                bagState.size = size
+            end
+            if bagState.link ~= link then
+                bagChanged = true
+                bagState.link = link
+            end
+            if not silent and bagChanged then
+                local payload = _tconcat({"b", tostring(bagSlot), tostring(size), link }, MSG_SEPARATOR)
+                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+            end
+        else
+            if not silent and bagState.link then -- bag was removed from this slot
+                bagState.link = nil
+                bagState.size = 0
+                local payload = _tconcat({"b", tostring(bagSlot), tostring(0), NULL_LINK }, MSG_SEPARATOR)
+                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+            end
+        end
+    end
+
+    local size = bagState.size
+    if bagChanged then -- if bag has changed, dump all items
+        if bagState.link then
+            for slot = 1, size do
+                local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bagSlot, slot)
+                if link then
+                    local itemState = bagState.contents[slot]
+                    if not itemState then
+                        itemState = {
+                            link = nil,
+                            count = 0
+                        }
+                        bagState.contents[slot] = itemState
+                    end
+                    itemState.link = link
+                    itemState.count = count
+
+                    if not silent then
+                        local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
+                        GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+                    end
+                end
+            end
+        else
+
+        end
+    else -- if bag didnt change, only report items that changed
+        for slot = 1, size do
+            local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bagSlot, slot)
+            local itemState = bagState.contents[slot]
+            if not itemState then
+                itemState = {
+                    link = nil,
+                    count = 0
+                }
+                bagState.contents[slot] = itemState
+            end
+            local shouldReport = false
+            if link then
+                if not itemState.link then -- item added
+                    shouldReport = true
+                end
+                if itemState.link ~= link then -- item changed
+                    shouldReport = true
+                end
+                if itemState.count ~= count then -- item count changed
+                    shouldReport = true
+                end
+            else
+                if itemState.link then -- item removed
+                    shouldReport = true
+                end
+            end
+
+            itemState.link = link
+            itemState.count = count
+            if not silent and shouldReport then
+                local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
+                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+            end
+        end
+    end
+end
+
+function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent will not create reports, used when initializing
+    local scanStart = _eval(startBag, startBag, 0)
+    local scanEnd = _eval(endBag, endBag, 11)
+    for i=scanStart, scanEnd do
+        PlayerbotsComsEmulator.ScanBagChanges(i, silent)
+
+    end
+end
 
 
 --function PlayerbotsComsEmulator:GenerateWhoReport(level, location)
