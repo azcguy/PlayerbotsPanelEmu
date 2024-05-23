@@ -89,10 +89,16 @@ CMD_TYPE.STAY = 1
 CMD_TYPE.FOLLOW = 2
 
 -- ============================================================================================
-
+-- BAGS
 local _changedBags = {}
 local _shouldScanBags = false
 local _bagstates = {}
+local _time = 0
+local _nextHandshakeTime = 0
+local _nextBagScanTime = 0
+local _bagScanTickrate = 0.1
+local _atBank = false
+local _initalBankScanComplete = false
 
 for i=-2, 11 do
     local size = 0
@@ -105,6 +111,8 @@ for i=-2, 11 do
         contents = {}
     }
 end
+
+-- ============================================================================================
 
 local function _eval(eval, ifTrue, ifFalse)
     if eval then
@@ -162,10 +170,7 @@ function PlayerbotsComsEmulator:Init()
     PlayerbotsComsEmulator.ScanBags(false)
 end
 
-local _time = 0
-local _nextHandshakeTime = 0
-local _nextBagScanTime = 0
-local _bagScanTickrate = 0.1
+
 function PlayerbotsComsEmulator:Update(elapsed)
     _time = _time + elapsed
 
@@ -180,8 +185,13 @@ function PlayerbotsComsEmulator:Update(elapsed)
     else
         if _nextBagScanTime < _time then
             _nextBagScanTime = _time + _bagScanTickrate
+            PlayerbotsComsEmulator.ScanBagChanges(-2, false)
             for i = 0, 4 do
                 PlayerbotsComsEmulator.ScanBagChanges(i, false)
+            end
+            if _atBank  then
+                PlayerbotsComsEmulator.ScanBagChanges(-1, false)
+                PlayerbotsComsEmulator.ScanBags(false, 5, 11)
             end
         end
     end
@@ -273,7 +283,8 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
 end
 
 QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
-    for bag = 1, 4 do
+
+    local function genBag(bag)
         local name = GetBagName(bag)
         if name then 
             local slots = GetContainerNumSlots(bag)
@@ -283,7 +294,12 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
         end
     end
 
-    for bag = 0, 4 do
+    genBag(-2) -- keychain
+    for bag = 1, 4 do
+        genBag(bag)
+    end
+
+    local function genItems(bag)
         local slots = GetContainerNumSlots(bag)
         for slot = 1, slots do
             local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bag, slot)
@@ -292,6 +308,11 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
                 GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
             end
         end
+    end
+
+    genItems(-2)
+    for bag = 0, 4 do
+        genItems(bag)
     end
 
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
@@ -365,7 +386,13 @@ function PlayerbotsComsEmulator:PLAYER_LEVEL_UP()
     GenerateExperienceReport()
 end
 
+function PlayerbotsComsEmulator:BANKFRAME_OPENED()
+    _atBank = true
+end
 
+function PlayerbotsComsEmulator:BANKFRAME_CLOSED()
+    _atBank = false
+end
 
 
 function PlayerbotsComsEmulator.SetBagChanged(bagSlot)
@@ -481,7 +508,6 @@ function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent wi
     local scanEnd = _eval(endBag, endBag, 11)
     for i=scanStart, scanEnd do
         PlayerbotsComsEmulator.ScanBagChanges(i, silent)
-
     end
 end
 

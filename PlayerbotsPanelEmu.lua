@@ -51,10 +51,12 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     self:RegisterEvent("PLAYER_LEVEL_UP")
     self:RegisterEvent("BAG_UPDATE")
+    self:RegisterEvent("BANKFRAME_OPENED")
+    self:RegisterEvent("BANKFRAME_CLOSED")
     _emu:Init()
 
     local botText = CreateFrame("Frame", nil, UIParent)
-    botText:SetSize(1280, 300)
+    botText:SetSize(1300, 300)
     botText:SetPoint("TOPLEFT", 0, 0)
     botText.text = botText:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     botText.text:SetAllPoints()
@@ -71,6 +73,14 @@ function PlayerbotsPanelEmu:PLAYER_LOGIN()
 end
 function PlayerbotsPanelEmu:PLAYER_LOGOUT()
     _emu:PLAYER_LOGOUT()
+end
+
+function PlayerbotsPanelEmu:BANKFRAME_OPENED()
+    _emu:BANKFRAME_OPENED()
+end
+
+function PlayerbotsPanelEmu:BANKFRAME_CLOSED()
+    _emu:BANKFRAME_CLOSED()
 end
 
 function PlayerbotsPanelEmu:PLAYER_ENTERING_WORLD()
@@ -164,8 +174,8 @@ function PlayerbotsPanelEmu:CreateWindow()
     UIPanelWindows[_frame:GetName()] = { area = "center", pushable = 0, whileDead = 1 }
     tinsert(UISpecialFrames, _frame:GetName())
     _frame:SetFrameStrata("DIALOG")
-    _frame:SetWidth(800)
-    _frame:SetHeight(420)
+    _frame:SetWidth(400)
+    _frame:SetHeight(100)
     _frame:SetPoint("CENTER")
     _frame:SetMovable(true)
     _frame:RegisterForDrag("LeftButton")
