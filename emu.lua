@@ -4,7 +4,6 @@ local _cfg = PlayerbotsPanelEmuConfig
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
 local _dbchar = {}
 local _simLogout = false
-local _updateHandler = PlayerbotsPanelUpdateHandler
 
 local _prefixCode = "pb8aj2" -- just something unique from other addons
 local _botStatus = {}
@@ -36,12 +35,15 @@ local _pbuffer = {} -- payload buffer
 -- SHARED BETWEEN EMU/BROKER
 
 local MSG_SEPARATOR = ":"
-local MSG_SEPARATOR_BYTE = _strbyte(":")
-local FLOAT_DOT_BYTE = _strbyte(".")
+local MSG_SEPARATOR_BYTE      = _strbyte(":")
+local FLOAT_DOT_BYTE          =  _strbyte(".")
+local BYTE_ZERO               = _strbyte("0")
+local BYTE_MINUS              = _strbyte("-")
+local BYTE_NULL_LINK          = _strbyte("~")
 local MSG_HEADER = {}
 local NULL_LINK = "~"
-local UTF8_NUM_FIRST = _strbyte("1") -- 49
-local UTF8_NUM_LAST = _strbyte("9") -- 57
+local UTF8_NUM_FIRST          = _strbyte("1") -- 49
+local UTF8_NUM_LAST           = _strbyte("9") -- 57
 
 MSG_HEADER.SYSTEM =             _strbyte("s")
 MSG_HEADER.REPORT =             _strbyte("r")
@@ -74,6 +76,8 @@ QUERY_TYPE.TALENTS    =         _strbyte("t") -- talents and talent points
 QUERY_TYPE.SPELLS     =         _strbyte("s") -- spellbook
 QUERY_TYPE.QUESTS     =         _strbyte("q") -- all quests
 QUERY_TYPE.STRATEGIES =         _strbyte("S")
+QUERY_TYPE.TRAINER      =       _strbyte("l") -- what the bot can learn from trainer
+
 
 PlayerbotsBrokerQueryOpcode = {}
 local QUERY_OPCODE = PlayerbotsBrokerQueryOpcode
@@ -83,10 +87,332 @@ QUERY_OPCODE.FINAL    =         _strbyte("f") -- final message of the query, con
 
 
 PlayerbotsBrokerCommandType = {}
-local CMD_TYPE = PlayerbotsBrokerCommandType
-CMD_TYPE.SUMMON = 0 
-CMD_TYPE.STAY = 1
-CMD_TYPE.FOLLOW = 2
+local COMMAND = PlayerbotsBrokerCommandType
+COMMAND.STATE        =          _strbyte("s")
+--[[ 
+    subtypes:
+        s - stay
+        f - follow
+        g - grind
+        F - flee
+        r - runaway (kite mob)
+        l - leave party
+]] 
+COMMAND.ITEM          =         _strbyte("i")
+--[[ 
+    subtypes:
+        e - equip
+        u - unequip
+        U - use
+        t - use on target
+        d - destroy
+        s - sell
+        j - sell junk
+        b - buy
+]] 
+COMMAND.GIVE_GOLD     =         _strbyte("g")
+COMMAND.BANK          =         _strbyte("b")
+--[[ 
+    subtypes:
+        d - bank deposit
+        w - bank withdraw
+        D - guild bank deposit 
+        W - guild bank withdraw
+]]
+COMMAND.QUEST          =         _strbyte("b")
+--[[ 
+    subtypes:
+        a - accept quest
+        A - accept all
+        d - drop quest
+        r - choose reward item
+        t - talk to quest npc
+        u - use game object (use los query to obtain the game object link)
+]]
+COMMAND.MISC           =         _strbyte("m")
+--[[ 
+    subtypes:
+        t - learn from trainer
+        c - cast spell
+        h - set home at innkeeper
+        r - release spirit when dead
+        R - revive when near spirit healer
+        s - summon
+]]
+
+-- ============================================================================================
+-- PARSER 
+
+-- This is a forward parser, call next..() methods to get value of type required by the msg
+-- If the payload is null, the parser is considered broken and methods will return default non null values
+local _parser = {
+    separator = MSG_SEPARATOR_BYTE,
+    dotbyte = FLOAT_DOT_BYTE,
+    buffer = {}
+}
+
+local BYTE_LINK_SEP = _strbyte("|")
+local BYTE_LINK_TERMINATOR = _strbyte("r")
+
+_parser.start = function (self, payload)
+    if not payload then 
+        self.broken = true
+        return
+    end
+    self.payload = payload
+    self.len = _strlen(payload)
+    self.broken = false
+    self.bufferCount = 0
+    self.cursor = 1
+end
+_parser.nextString = function(self)
+    if self.broken then
+        return "NULL"
+    end
+    local strbyte = _strbyte
+    local strchar = _strchar
+    local buffer = self.buffer
+    local p = self.payload
+    for i = self.cursor, self.len+1 do
+        local c = strbyte(p, i)
+        if c == nil or c == self.separator then
+            local bufferCount = self.bufferCount
+            if bufferCount > 0 then
+                self.cursor = i + 1
+                if buffer[1] == NULL_LINK then
+                    self.bufferCount = 0
+                    return nil 
+                end
+                
+                local result = _tconcat(buffer, nil, 1, bufferCount)
+                self.bufferCount = 0
+                return result
+            else
+                return nil
+            end
+        else
+            self.cursor = i
+            local bufferCount = self.bufferCount + 1
+            self.bufferCount = bufferCount
+            buffer[bufferCount] = strchar(c)
+        end
+    end
+end
+
+_parser.stringToEnd = function(self)
+    if self.broken then
+        return "NULL"
+    end
+    self.bufferCount = 0
+    local p = self.payload
+    local c = strbyte(p, self.cursor)
+    if c == BYTE_NULL_LINK then
+        return nil 
+    else
+        return _strsub(p, self.cursor)
+    end
+end
+
+_parser.nextLink = function(self)
+    if self.broken then
+        return nil
+    end
+    local strbyte = _strbyte
+    local strchar = _strchar
+    local buffer = self.buffer
+    local p = self.payload
+    local start = self.cursor
+    local v = false -- validate  the | char
+    -- if after the validator proceeds an 'r' then we terminate the link
+    for i = self.cursor, self.len+1 do
+        local c = strbyte(p, i)
+        self.cursor = i
+        if v == true then
+            if c == BYTE_LINK_TERMINATOR then
+                local result = _strsub(p, start, i)
+                self.cursor = i + 2 -- as we dont end on separator we jump 1 ahead
+                return result
+            else
+                v = false
+            end
+        end
+
+        if c == BYTE_LINK_SEP then
+            v = true
+        end
+
+        if c == NULL_LINK then
+            self.cursor = i + 1
+            return nil
+        end
+
+        if c == nil then
+            -- we reached the end of payload but didnt close the link, the link is either not a link or invalid
+            -- return null?
+            return nil
+        end
+    end
+end
+
+_parser.nextInt = function(self)
+    if self.broken then
+        return 0
+    end
+    local buffer = self.buffer
+    local p = self.payload
+    local strbyte = _strbyte
+    local pow = _pow
+    local floor = _floor
+    for i = self.cursor, self.len + 1 do
+        local c = strbyte(p, i)
+        if c == nil or c == self.separator then
+            local bufferCount = self.bufferCount
+            if bufferCount > 0 then
+                self.cursor = i + 1
+                local result = 0
+                local sign = 1
+                local start = 1
+                if buffer[1] == BYTE_MINUS then
+                    sign = -1
+                    start = 2
+                end
+                for t= start, bufferCount do
+                    result = result + ((buffer[t]-48)*pow(10, bufferCount - t))
+                end
+                result = result * sign
+                self.bufferCount = 0
+                return floor(result)
+            end
+        else
+            self.cursor = i
+            local bufferCount = self.bufferCount + 1
+            self.bufferCount = bufferCount
+            buffer[bufferCount] = c
+        end
+    end
+end
+_parser.nextFloat = function(self)
+    if self.broken then
+        return 0.0
+    end
+    local tobyte = string.byte
+    local buffer = self.buffer
+    local p = self.payload
+    local pow = _pow
+    for i = self.cursor, self.len + 1 do
+        local c = tobyte(p, i)
+        if c == nil or c == self.separator then
+            local bufferCount = self.bufferCount
+            if bufferCount > 0 then
+                self.cursor = i + 1
+                local result = 0
+                local dotPos = -1
+                local sign = 1
+                local start = 1
+                if buffer[1] == BYTE_MINUS then
+                    sign = -1
+                    start = 2
+                end
+                -- find dot
+                for t=1, bufferCount do
+                    if buffer[t] == self.dotbyte then
+                        dotPos = t
+                        break
+                    end
+                end
+                -- if no dot, use simplified int algo
+                if dotPos == -1 then
+                    for t=start, bufferCount do
+                        result = result + ((buffer[t]-48)*pow(10, bufferCount - t))
+                    end
+                    result = result * sign
+                    self.bufferCount = 0
+                    return result -- still returns a float because of pow
+                else
+                    for t=start, dotPos-1 do -- int
+                        result = result + ((buffer[t]-48)*pow(10, dotPos - t - 1))
+                    end
+                    for t=dotPos+1, bufferCount do -- decimal
+                        result = result + ((buffer[t]-48)* pow(10, (t-dotPos) * -1))
+                    end
+                    result = result * sign
+                    self.bufferCount = 0
+                    return result
+                end
+            end
+        else
+            self.cursor = i
+            local bufferCount = self.bufferCount + 1
+            self.bufferCount = bufferCount
+            buffer[bufferCount] = c
+        end
+    end
+end
+_parser.nextBool = function (self)
+    if self.broken then
+        return false
+    end
+    local strbyte = _strbyte
+    local strchar = _strchar
+    local buffer = self.buffer
+    local p = self.payload
+    for i = self.cursor, self.len+1 do
+        local c = strbyte(p, i)
+        if c == nil or c == self.separator then
+            if self.bufferCount > 0 then
+                self.cursor = i + 1
+                self.bufferCount = 0
+                if buffer[1] == BYTE_ZERO then
+                    return false
+                else
+                    return true
+                end
+            else
+                return nil
+            end
+        else
+            self.cursor = i
+            local bufferCount = self.bufferCount + 1
+            self.bufferCount = bufferCount
+            buffer[bufferCount] = c
+        end
+    end
+end
+
+_parser.nextChar = function (self)
+    if self.broken then
+        return false
+    end
+    local strbyte = _strbyte
+    local strchar = _strchar
+    local p = self.payload
+    local result = nil
+    for i = self.cursor, self.len+1 do
+        local c = strbyte(p, i)
+        if c == nil or c == self.separator then
+            self.cursor = i + 1
+            self.bufferCount = 0
+            return result
+        else
+            self.cursor = i
+            if not result then
+                result = strchar(c)
+            end
+        end
+    end
+end
+
+_parser.validateLink = function(link)
+    if link == nil then return false end
+    local l = _strlen(link)
+    local v1 = _strbyte(link, l) == BYTE_LINK_TERMINATOR
+    local v2 = _strbyte(link, l-1) == BYTE_LINK_SEP
+    return v1 and v2
+end
+
+-----------------------------------------------------------------------------
+----- PARSER END / SHARED REGION END
+-----------------------------------------------------------------------------
 
 -- ============================================================================================
 -- BAGS
@@ -318,9 +644,16 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
 end
 
+local COMMAND_HANDLERS = {}
+
+--COMMAND_HANDLERS[COMMAND.]
+
 local MSG_HANDLERS = {}
 MSG_HANDLERS[MSG_HEADER.SYSTEM] = SYS_MSG_HANDLERS
 MSG_HANDLERS[MSG_HEADER.REPORT] = {}
+MSG_HANDLERS[MSG_HEADER.COMMAND] = COMMAND_HANDLERS
+
+--EquipItemByName
 
 function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
     print("|cffb4ff29 << MASTER |r " .. message)
@@ -510,6 +843,3 @@ function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent wi
         PlayerbotsComsEmulator.ScanBagChanges(i, silent)
     end
 end
-
-
---function PlayerbotsComsEmulator:GenerateWhoReport(level, location)
