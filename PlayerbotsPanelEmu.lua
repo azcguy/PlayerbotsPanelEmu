@@ -219,5 +219,13 @@ function PlayerbotsPanelEmu:CreateWindow()
     MakeButton("Sim Login", 100, currentY, 100, rowHeight, _emu.SimLogin)
     MakeButton("Dump Bag Links", 200, currentY, 100, rowHeight, DumpBagLinks)
     MakeButton("Scan bags", 300, currentY, 100, rowHeight, _emu.ScanBags)
+    currentY = currentY - 25
+
+    local function TestProtectedFunc()
+        print("Using item from bag0 slot1, if the exe is unprotected the item will be used")
+        UseContainerItem(0, 1, "player")
+    end
+
+    MakeButton("TestProtected", 0, currentY, 100, rowHeight, TestProtectedFunc)
 
 end

@@ -99,6 +99,14 @@ COMMAND.STATE        =          _strbyte("s")
         l - leave party
 ]] 
 COMMAND.ITEM          =         _strbyte("i")
+COMMAND.ITEM_EQUIP    =         _strbyte("e")
+COMMAND.ITEM_UNEQUIP  =         _strbyte("u")
+COMMAND.ITEM_USE      =         _strbyte("U")
+COMMAND.ITEM_USE_TARGET=        _strbyte("t")
+COMMAND.ITEM_DESTROY  =         _strbyte("d")
+COMMAND.ITEM_SELL     =         _strbyte("s")
+COMMAND.ITEM_SELL_JUNK=         _strbyte("j")
+COMMAND.ITEM_BUY      =         _strbyte("b")
 --[[ 
     subtypes:
         e - equip
@@ -402,6 +410,10 @@ _parser.nextChar = function (self)
     end
 end
 
+_parser.nextCharAsByte = function (self)
+    return _strbyte(self:nextChar())
+end
+
 _parser.validateLink = function(link)
     if link == nil then return false end
     local l = _strlen(link)
@@ -644,9 +656,45 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
 end
 
-local COMMAND_HANDLERS = {}
+local COMMAND_HANDLERS_ITEM = {}
+COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE] = function ()
+    print("cmd.item_use")
+    local link = _parser:nextLink()
+    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+    if item then
+        UseContainerItem(bag, slot, "player")
+    end
+end
 
---COMMAND_HANDLERS[COMMAND.]
+COMMAND_HANDLERS_ITEM[COMMAND.ITEM_EQUIP] = function ()
+    print("cmd.item_equip")
+    local link = _parser:nextLink()
+    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+    if item then
+        UseContainerItem(bag, slot, "player")
+    end
+end
+
+COMMAND_HANDLERS_ITEM[COMMAND.ITEM_UNEQUIP] = function ()
+    print("cmd.item_equip")
+    local link = _parser:nextLink()
+    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+    if item then
+        
+    end
+end
+
+local COMMAND_HANDLERS = {}
+COMMAND_HANDLERS[COMMAND.ITEM] = function (id, payload)
+    _parser:start(payload)
+    local subCmd = _parser:nextCharAsByte()
+    local impl = COMMAND_HANDLERS_ITEM[subCmd]
+    if impl then
+        impl()
+    end
+end
+
+
 
 local MSG_HANDLERS = {}
 MSG_HANDLERS[MSG_HEADER.SYSTEM] = SYS_MSG_HANDLERS
@@ -779,7 +827,7 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
                     if not itemState then
                         itemState = {
                             link = nil,
-                            count = 0
+                            count = 0,
                         }
                         bagState.contents[slot] = itemState
                     end
@@ -841,5 +889,19 @@ function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent wi
     local scanEnd = _eval(endBag, endBag, 11)
     for i=scanStart, scanEnd do
         PlayerbotsComsEmulator.ScanBagChanges(i, silent)
+    end
+end
+
+function PlayerbotsComsEmulator.FindItemByLink(link)
+    if link and _parser.validateLink(link) then
+        for bag=-2, 11 do
+            local bagState = _bagstates[bag]
+            for slot = 1, bagState.size do
+                local item = bagState.contents[slot]
+                if item and item.link == link then
+                    return bag, slot, item
+                end
+            end
+        end
     end
 end
