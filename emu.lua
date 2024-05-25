@@ -102,7 +102,7 @@ COMMAND.ITEM          =         _strbyte("i")
 COMMAND.ITEM_EQUIP    =         _strbyte("e")
 COMMAND.ITEM_UNEQUIP  =         _strbyte("u")
 COMMAND.ITEM_USE      =         _strbyte("U")
-COMMAND.ITEM_USE_TARGET=        _strbyte("t")
+COMMAND.ITEM_USE_ON   =         _strbyte("t")
 COMMAND.ITEM_DESTROY  =         _strbyte("d")
 COMMAND.ITEM_SELL     =         _strbyte("s")
 COMMAND.ITEM_SELL_JUNK=         _strbyte("j")
@@ -446,7 +446,20 @@ for i=-2, 11 do
     _bagstates[i] = {
         link = nil,
         size = size,
-        contents = {}
+        contents = {},
+        getFree = function (self)
+            local freeCount = self.size
+            local firstFreeSlot = nil
+            for i=1, size do
+                local item = self.contents[i]
+                if item and item.link then
+                    freeCount = freeCount - 1
+                else
+                    firstFreeSlot = i
+                end
+            end
+            return freeCount, firstFreeSlot
+        end
     }
 end
 
@@ -666,6 +679,18 @@ COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE] = function ()
     end
 end
 
+COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE_ON] = function ()
+    print("cmd.item_use_on")
+    local link1 = _parser:nextLink()
+    local link2 = _parser:nextLink()
+    local bag1, slot1, item1 = PlayerbotsComsEmulator.FindItemByLink(link1)
+    local bag2, slot2, item2 = PlayerbotsComsEmulator.FindItemByLink(link2)
+    if item1 and item2 then
+        PickupItem(item1.link)
+        
+    end
+end
+
 COMMAND_HANDLERS_ITEM[COMMAND.ITEM_EQUIP] = function ()
     print("cmd.item_equip")
     local link = _parser:nextLink()
@@ -676,13 +701,39 @@ COMMAND_HANDLERS_ITEM[COMMAND.ITEM_EQUIP] = function ()
 end
 
 COMMAND_HANDLERS_ITEM[COMMAND.ITEM_UNEQUIP] = function ()
-    print("cmd.item_equip")
+    print("cmd.item_unequip")
     local link = _parser:nextLink()
-    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
-    if item then
-        
-    end
+    local eslot = PlayerbotsComsEmulator.FindEquipSlotByLink(link)
+    if eslot then
+        ClearCursor()
+        PickupInventoryItem(eslot)
+
+        if _bagstates[0]:getFree() > 0 then
+            PutItemInBackpack()
+        else
+            for i=1, 4 do
+                local freeTotal, firstFreeSlot = _bagstates[i]:getFree()
+                if freeTotal > 0 then
+                    print("bag" .. i , tostring(freeTotal))
+                    PutItemInBag(i+19)
+                    break
+                end
+            end
+        end
+    end 
+    PlayerbotsComsEmulator:ScanBags()
 end
+
+--COMMAND_HANDLERS_ITEM[COMMAND.ITEM_TRADE] = function ()
+--    print("cmd.item_trade")
+--    local link = _parser:nextLink()
+--    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+--    if item then
+--        InitiateTrade(_dbchar.master)
+--        ClickTradeButton(index) -- click slot/pick item/place item
+--        UseContainerItem(bag, slot, "player")
+--    end
+--end
 
 local COMMAND_HANDLERS = {}
 COMMAND_HANDLERS[COMMAND.ITEM] = function (id, payload)
@@ -775,6 +826,11 @@ function PlayerbotsComsEmulator:BANKFRAME_CLOSED()
     _atBank = false
 end
 
+function PlayerbotsComsEmulator:TRADE_ACCEPT_UPDATE(player, target)
+    if target == 1 then
+        AcceptTrade()
+    end
+end
 
 function PlayerbotsComsEmulator.SetBagChanged(bagSlot)
     if bagSlot >= 0 then
@@ -885,7 +941,7 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
 end
 
 function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent will not create reports, used when initializing
-    local scanStart = _eval(startBag, startBag, 0)
+    local scanStart = _eval(startBag, startBag, -2)
     local scanEnd = _eval(endBag, endBag, 11)
     for i=scanStart, scanEnd do
         PlayerbotsComsEmulator.ScanBagChanges(i, silent)
@@ -901,6 +957,17 @@ function PlayerbotsComsEmulator.FindItemByLink(link)
                 if item and item.link == link then
                     return bag, slot, item
                 end
+            end
+        end
+    end
+end
+
+function PlayerbotsComsEmulator.FindEquipSlotByLink(link)
+    if link and _parser.validateLink(link) then
+        for eslot = 0, 20 do 
+            local equipped = GetInventoryItemLink("player", eslot)
+            if equipped == link then
+                return eslot
             end
         end
     end

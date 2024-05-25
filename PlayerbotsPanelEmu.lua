@@ -53,6 +53,8 @@ function PlayerbotsPanelEmu:OnInitialize()
     self:RegisterEvent("BAG_UPDATE")
     self:RegisterEvent("BANKFRAME_OPENED")
     self:RegisterEvent("BANKFRAME_CLOSED")
+    self:RegisterEvent("TRADE_ACCEPT_UPDATE")
+    self:RegisterEvent("EQUIP_BIND_CONFIRM")
     _emu:Init()
 
     local botText = CreateFrame("Frame", nil, UIParent)
@@ -63,6 +65,10 @@ function PlayerbotsPanelEmu:OnInitialize()
     botText.text:SetText("B O T")
     botText.text:SetTextHeight(300)
     botText.text:SetTextColor(1, 0, 1 )
+end
+
+function PlayerbotsPanelEmu:EQUIP_BIND_CONFIRM(index)
+    EquipPendingItem(index)
 end
 
 function PlayerbotsPanelEmu:BAG_UPDATE(bagID)
@@ -81,6 +87,10 @@ end
 
 function PlayerbotsPanelEmu:BANKFRAME_CLOSED()
     _emu:BANKFRAME_CLOSED()
+end
+
+function PlayerbotsPanelEmu:TRADE_ACCEPT_UPDATE(player, target)
+    _emu:TRADE_ACCEPT_UPDATE(player, target)
 end
 
 function PlayerbotsPanelEmu:PLAYER_ENTERING_WORLD()
