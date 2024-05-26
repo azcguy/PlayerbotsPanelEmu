@@ -31,6 +31,15 @@ local _pow = math.pow
 local _floor = math.floor
 local _pbuffer = {} -- payload buffer
 
+local _currencyCache = {}
+_currencyCache.copper = 0
+_currencyCache.silver = 0
+_currencyCache.gold = 0
+_currencyCache.honor = 0
+_currencyCache.arenaPoints = 0
+_currencyCache.other = {}
+
+
 -- ============================================================================================
 -- SHARED BETWEEN EMU/BROKER
 
@@ -70,13 +79,14 @@ PlayerbotsBrokerQueryType = {}
 local QUERY_TYPE = PlayerbotsBrokerQueryType
 QUERY_TYPE.WHO        =         _strbyte("w") -- level, class, spec, location, experience and more
 QUERY_TYPE.CURRENCY   =         _strbyte("c") -- money, honor, tokens
+CURRENCY_MONEY        =                  "g" -- subtype: money
+CURRENCY_OTHER        =                  "c" -- subtype: other currency (with id)
 QUERY_TYPE.GEAR       =         _strbyte("g") -- only what is equipped
 QUERY_TYPE.INVENTORY  =         _strbyte("i") -- whats in the bags and bags themselves
 QUERY_TYPE.TALENTS    =         _strbyte("t") -- talents and talent points 
 QUERY_TYPE.SPELLS     =         _strbyte("s") -- spellbook
 QUERY_TYPE.QUESTS     =         _strbyte("q") -- all quests
 QUERY_TYPE.STRATEGIES =         _strbyte("S")
-QUERY_TYPE.TRAINER      =       _strbyte("l") -- what the bot can learn from trainer
 
 
 PlayerbotsBrokerQueryOpcode = {}
@@ -151,8 +161,8 @@ COMMAND.MISC           =         _strbyte("m")
 -- ============================================================================================
 -- PARSER 
 
--- This is a forward parser, call next..() methods to get value of type required by the msg
--- If the payload is null, the parser is considered broken and methods will return default non null values
+-- This is a forward parser, call next..() functions to get value of type required by the msg
+-- If the payload is null, the parser is considered broken and functions will return default non null values
 local _parser = {
     separator = MSG_SEPARATOR_BYTE,
     dotbyte = FLOAT_DOT_BYTE,
@@ -519,6 +529,7 @@ function PlayerbotsComsEmulator:Init()
     print("Starting emulator")
     _dbchar = PlayerbotsPanelEmu.db.char
     PlayerbotsComsEmulator.ScanBags(false)
+    PlayerbotsComsEmulator.ScanCurrencies(false)
 end
 
 
@@ -536,6 +547,7 @@ function PlayerbotsComsEmulator:Update(elapsed)
     else
         if _nextBagScanTime < _time then
             _nextBagScanTime = _time + _bagScanTickrate
+            PlayerbotsComsEmulator.ScanCurrencies(false)
             PlayerbotsComsEmulator.ScanBagChanges(-2, false)
             for i = 0, 4 do
                 PlayerbotsComsEmulator.ScanBagChanges(i, false)
@@ -669,6 +681,21 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
 end
 
+QUERY_MSG_HANDLERS[QUERY_TYPE.CURRENCY] = function (id, payload)
+    local cache = _currencyCache
+    local payload = _tconcat({CURRENCY_MONEY, tostring(cache.gold), tostring(cache.silver), tostring(cache.copper) }, MSG_SEPARATOR) -- report gold changed
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+
+    for itemId, count in pairs(_currencyCache.other) do
+        if itemId ~= 0 then
+            local payload = _tconcat({CURRENCY_OTHER, tostring(itemId), tostring(count) }, MSG_SEPARATOR) -- report other currency changed
+            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+        end
+    end
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
+end
+
 local COMMAND_HANDLERS_ITEM = {}
 COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE] = function ()
     print("cmd.item_use")
@@ -687,7 +714,7 @@ COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE_ON] = function ()
     local bag2, slot2, item2 = PlayerbotsComsEmulator.FindItemByLink(link2)
     if item1 and item2 then
         PickupItem(item1.link)
-        
+        -- Unfinished
     end
 end
 
@@ -945,6 +972,49 @@ function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent wi
     local scanEnd = _eval(endBag, endBag, 11)
     for i=scanStart, scanEnd do
         PlayerbotsComsEmulator.ScanBagChanges(i, silent)
+    end
+end
+
+
+function  PlayerbotsComsEmulator.ScanCurrencies(silent)
+    local money = GetMoney()
+    local gold = floor(abs(money / 10000))
+    local silver = floor(abs(mod(money / 100, 100)))
+    local copper = floor(abs(mod(money, 100)))
+
+    local shouldReportMoney = false
+
+    if gold ~= _currencyCache.gold then
+        shouldReportMoney = true
+        _currencyCache.gold = gold
+    end
+
+    if silver ~= _currencyCache.silver then
+        shouldReportMoney = true
+        _currencyCache.silver = silver
+    end
+
+    if copper ~= _currencyCache.copper then
+        shouldReportMoney = true
+        _currencyCache.copper = copper
+    end
+
+    if not silent and shouldReportMoney then
+        local payload = _tconcat({CURRENCY_MONEY, tostring(gold), tostring(silver), tostring(copper) }, MSG_SEPARATOR) -- report gold changed
+        GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.CURRENCY, nil, payload)
+    end
+
+    for index = 1, GetCurrencyListSize() do
+        local name, isHeader, isExpanded, isUnused, isWatched, count, extraCurrencyType, icon, itemID = GetCurrencyListInfo(index)
+        if itemID ~= 0 then
+            if _currencyCache.other[itemID] ~= count then
+                _currencyCache.other[itemID] = count
+                if not silent then
+                    local payload = _tconcat({CURRENCY_OTHER, tostring(itemID), tostring(count) }, MSG_SEPARATOR) -- report other currency changed
+                    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.CURRENCY, nil, payload)
+                end
+            end
+        end
     end
 end
 
