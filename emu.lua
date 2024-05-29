@@ -29,7 +29,7 @@ local _getn = getn
 local _sendAddonMsg = SendAddonMessage
 local _pow = math.pow
 local _floor = math.floor
-local _pbuffer = {} -- payload buffer
+
 
 local _currencyCache = {}
 _currencyCache.copper = 0
@@ -87,14 +87,26 @@ QUERY_TYPE.TALENTS    =         _strbyte("t") -- talents and talent points
 QUERY_TYPE.SPELLS     =         _strbyte("s") -- spellbook
 QUERY_TYPE.QUESTS     =         _strbyte("q") -- all quests
 QUERY_TYPE.STRATEGIES =         _strbyte("S")
-
+QUERY_TYPE.STATS      =         _strbyte("T") -- all
+--[[ Stats are grouped and sent together 
+    subtypes:
+        b - base + resists
+        m - melee
+        r - ranged
+        s - spell
+        d - defenses
+]] 
+QUERY_TYPE.STATS_BASE     =         _strbyte("b") -- all stats
+QUERY_TYPE.STATS_MELEE    =         _strbyte("m") -- all stats
+QUERY_TYPE.STATS_RANGED   =         _strbyte("r") -- all stats
+QUERY_TYPE.STATS_SPELL    =         _strbyte("s") -- all stats
+QUERY_TYPE.STATS_DEFENSES =         _strbyte("d") -- all stats
 
 PlayerbotsBrokerQueryOpcode = {}
 local QUERY_OPCODE = PlayerbotsBrokerQueryOpcode
 QUERY_OPCODE.PROGRESS =         _strbyte("p") -- query is in progress
 QUERY_OPCODE.FINAL    =         _strbyte("f") -- final message of the query, contains the final payload, and closes query
 -- bytes 49 - 57 are errors
-
 
 PlayerbotsBrokerCommandType = {}
 local COMMAND = PlayerbotsBrokerCommandType
@@ -436,6 +448,50 @@ end
 ----- PARSER END / SHARED REGION END
 -----------------------------------------------------------------------------
 
+local _pbuffer = {} -- payload buffer
+local _pbufferCount = 0
+local _pbufferRound = false
+local _pbufferDebugMode = false
+
+local function bufferAdd_STRING(str, debugName)
+    _pbufferCount = _pbufferCount + 1
+    if str == nil then
+        str = NULL_LINK
+    end
+    if _pbufferDebugMode and debugName then
+        print("BUFFER: " .. debugName .. " - " .. str)
+    end
+    _pbuffer[_pbufferCount] = str
+end
+
+local function bufferAdd_INT(value, debugName)
+    if value == nil then
+        value = 0
+    elseif type(value) == "number" then
+        value = math.floor(value)
+    end
+    bufferAdd_STRING(tostring(value), debugName)
+end
+
+local function bufferAdd_FLOAT(value, debugName)
+    if value == nil then
+        value = 0
+    elseif type(value) == "number" then
+        value = math.floor(value * 100 ) / 100
+    end
+    bufferAdd_STRING(tostring(value), debugName)
+end
+
+local function bufferSetDebug(val)
+    _pbufferDebugMode = val
+end
+
+local function bufferClear()
+    wipe(_pbuffer)
+    _pbufferCount = 0
+    _pbufferDebugMode = false
+end
+
 -- ============================================================================================
 -- BAGS
 local _changedBags = {}
@@ -609,6 +665,129 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
         zone
     }, MSG_SEPARATOR)
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+end
+
+-- WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! 
+QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
+    --[[
+        ratingIndex - Index of a rating; the following global constants are provided for convenience (number)
+            CR_BLOCK - Block skill
+            CR_CRIT_MELEE - Melee critical strike chance
+            CR_CRIT_RANGED - Ranged critical strike chance
+            CR_CRIT_SPELL - Spell critical strike chance
+            CR_CRIT_TAKEN_MELEE - Melee Resilience
+            CR_CRIT_TAKEN_RANGED - Ranged Resilience
+            CR_CRIT_TAKEN_SPELL - Spell Resilience
+            CR_DEFENSE_SKILL - Defense skill
+            CR_DODGE - Dodge skill
+            CR_HASTE_MELEE - Melee haste
+            CR_HASTE_RANGED - Ranged haste
+            CR_HASTE_SPELL - Spell haste
+            CR_HIT_MELEE - Melee chance to hit
+            CR_HIT_RANGED - Ranged chance to hit
+            CR_HIT_SPELL - Spell chance to hit
+            CR_HIT_TAKEN_MELEE - Unused
+            CR_HIT_TAKEN_RANGED - Unused
+            CR_HIT_TAKEN_SPELL - Unused
+            CR_PARRY - Parry skill
+            CR_WEAPON_SKILL - Weapon skill
+            CR_WEAPON_SKILL_MAINHAND - Main-hand weapon skill
+            CR_WEAPON_SKILL_OFFHAND - Offhand weapon skill
+            CR_WEAPON_SKILL_RANGED - Ranged weapon skill
+    ]]
+
+    local function GetCRValues(combatRating)
+        local value =  GetCombatRating(combatRating)
+        local bonus =  GetCombatRatingBonus(combatRating)
+        return value, bonus
+    end
+    bufferClear()
+    bufferAdd_STRING("b")
+
+    --[[
+        1 - Agility
+        2 - Intellect
+        3 - Spirit
+        4 - Stamina
+        5 - Strength
+    ]]
+
+    for i=1, 5 do
+        local value, effectiveStat, positive, negative = UnitStat("player", i)
+        bufferAdd_INT(value)
+        bufferAdd_INT(effectiveStat)
+        bufferAdd_INT(positive)
+        bufferAdd_INT(negative)
+    end
+
+    --[[
+        1 - Arcane
+        2 - Fire
+        3 - Nature
+        4 - Frost
+        5 - Shadow
+    ]]
+
+    for i=1, 5 do
+        local base, resistance, positive, negative = UnitResistance("player", i)
+        bufferAdd_INT(base)
+        bufferAdd_INT(resistance)
+        bufferAdd_INT(positive)
+        bufferAdd_INT(negative)
+    end
+
+    local expertise = GetExpertise()
+    local expertisePerc, offhandExpertisePercent = GetExpertisePercent()
+    
+    bufferSetDebug(true)
+
+    bufferAdd_INT(expertise, "expertise")
+    bufferAdd_FLOAT(expertisePerc, "expertisePerc")
+    bufferAdd_FLOAT(offhandExpertisePercent, "offhandExpertisePercent")
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+
+    bufferClear()
+
+    local minMeleeDamage, maxMeleeDamage, minMeleeOffHandDamage, maxMeleeOffHandDamage, meleePhysicalBonusPositive, meleePhysicalBonusNegative, meleeDamageBuffPercent = UnitDamage("player")
+    local meleeSpeed, meleeOffhandSpeed = UnitAttackSpeed("player")
+    local meleeAtkPowerBase, meleeAtkPowerPositive, meleeAtkPowerNegative = UnitAttackPower("player")
+    local meleeHaste, meleeHasteBonus = GetCRValues(CR_HASTE_MELEE)
+    local meleeCrit, meleeCritBonus = GetCRValues(CR_CRIT_MELEE)
+    local meleeHit, meleeHitBonus = GetCRValues(CR_HIT_MELEE)
+    local meleeResil, meleeResilBonus = GetCRValues(CR_CRIT_TAKEN_MELEE)
+    
+    -- All floats should be rounded to 2 decimals, so 0.513213 becomes 0.51
+
+    bufferAdd_STRING("m")
+    bufferAdd_FLOAT(minMeleeDamage, "minMeleeDamage")
+    bufferAdd_FLOAT(maxMeleeDamage, "maxMeleeDamage") 
+    bufferAdd_FLOAT(minMeleeOffHandDamage, "minMeleeOffHandDamage") 
+    bufferAdd_FLOAT(maxMeleeOffHandDamage, "maxMeleeOffHandDamage") 
+    bufferAdd_INT(meleePhysicalBonusPositive, "meleePhysicalBonusPositive") 
+    bufferAdd_INT(meleePhysicalBonusNegative, "meleePhysicalBonusNegative")
+    bufferAdd_FLOAT(meleeDamageBuffPercent, "meleeDamageBuffPercent") 
+
+    bufferAdd_FLOAT(meleeSpeed, "meleeSpeed")
+    bufferAdd_FLOAT(meleeOffhandSpeed, "meleeOffhandSpeed")
+
+    bufferAdd_INT(meleeAtkPowerBase, "meleeAtkPowerBase")
+    bufferAdd_INT(meleeAtkPowerPositive, "meleeAtkPowerPositive")
+    bufferAdd_INT(meleeAtkPowerNegative, "meleeAtkPowerNegative")
+
+    bufferAdd_INT(meleeHaste, "meleeHaste")
+    bufferAdd_FLOAT(meleeHasteBonus, "meleeHasteBonus")
+
+    bufferAdd_INT(meleeCrit, "meleeCrit")
+    bufferAdd_FLOAT(meleeCritBonus, "meleeCritBonus") 
+
+    bufferAdd_INT(meleeHit, "meleeHit")
+    bufferAdd_FLOAT(meleeHitBonus, "meleeHitBonus") 
+
+    bufferAdd_INT(meleeResil, "meleeResil")
+    bufferAdd_FLOAT(meleeResilBonus, "meleeResilBonus") 
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, _tconcat(_pbuffer, MSG_SEPARATOR))
 end
 
 QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
