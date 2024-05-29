@@ -492,6 +492,12 @@ local function bufferClear()
     _pbufferDebugMode = false
 end
 
+local function bufferToString()
+    local result = _tconcat(_pbuffer, MSG_SEPARATOR)
+    bufferClear()
+    return result
+end
+
 -- ============================================================================================
 -- BAGS
 local _changedBags = {}
@@ -568,11 +574,16 @@ local function GenerateMessage(header, subtype, id, payload)
     print("|cff7afffb >> MASTER |r " ..  msg)
 end
 
-local function GenerateExperienceReport()
+local function GenerateExperienceReport(levelFromEvent)
     local level = UnitLevel(PLAYER)
+    if levelFromEvent then
+        level = levelFromEvent
+    end
     local floatXp = inverseLerp(0.0, UnitXPMax(PLAYER), UnitXP(PLAYER))
-    local payload = _tconcat({level, floatXp}, MSG_SEPARATOR)
-    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.EXPERIENCE, 0, payload)
+    bufferClear()
+    bufferAdd_INT(level)
+    bufferAdd_FLOAT(floatXp)
+    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.EXPERIENCE, 0, bufferToString())
 end
 
 function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
@@ -586,6 +597,8 @@ function PlayerbotsComsEmulator:Init()
     _dbchar = PlayerbotsPanelEmu.db.char
     PlayerbotsComsEmulator.ScanBags(false)
     PlayerbotsComsEmulator.ScanCurrencies(false)
+    CastSpellByID(13159)
+
 end
 
 
@@ -603,6 +616,10 @@ function PlayerbotsComsEmulator:Update(elapsed)
     else
         if _nextBagScanTime < _time then
             _nextBagScanTime = _time + _bagScanTickrate
+            if not CheckInteractDistance(_dbchar.master, 2) then
+                CastSpellByID(13159)
+                FollowUnit(_dbchar.master)
+            end
             PlayerbotsComsEmulator.ScanCurrencies(false)
             PlayerbotsComsEmulator.ScanBagChanges(-2, false)
             for i = 0, 4 do
@@ -713,12 +730,41 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     ]]
 
     for i=1, 5 do
-        local value, effectiveStat, positive, negative = UnitStat("player", i)
-        bufferAdd_INT(value)
+        local value, effectiveStat, positive, negative = UnitStat(PLAYER, i)
         bufferAdd_INT(effectiveStat)
         bufferAdd_INT(positive)
         bufferAdd_INT(negative)
+
+        if i == 1 then -- STRENGTH related stats
+            local attackPower = GetAttackPowerForStat(1, effectiveStat)
+            bufferAdd_INT(attackPower)
+        elseif i == 2 then -- AGILITY related stats
+            local attackPower = GetAttackPowerForStat(2, effectiveStat)
+            bufferAdd_INT(attackPower)
+            local agiCritChance = GetCritChanceFromAgility(PLAYER)
+            bufferAdd_FLOAT(agiCritChance)
+        elseif i == 3 then -- STAMINA
+            local maxHpModifier = GetUnitMaxHealthModifier("pet")
+            bufferAdd_INT(maxHpModifier)
+        elseif i == 4 then -- intellect
+            local critFromIntellect =  GetSpellCritChanceFromIntellect(PLAYER)
+            bufferAdd_FLOAT(critFromIntellect)
+        elseif i == 5 then -- spirit
+            local healthRegenFromSpirit =  GetUnitHealthRegenRateFromSpirit(PLAYER)
+            local manaRegenFromSpirit = GetUnitManaRegenRateFromSpirit(PLAYER)
+            bufferAdd_INT(healthRegenFromSpirit)
+            bufferAdd_FLOAT(manaRegenFromSpirit)
+        end
     end
+
+    local _, effectiveArmor, _, armorPositive, armorNegative = UnitArmor(PLAYER)
+    bufferAdd_INT(effectiveArmor)
+    bufferAdd_INT(armorPositive)
+    bufferAdd_INT(armorNegative)
+    local _, effectivePetArmor, _, armorPetPositive, armorPetNegative = UnitArmor("pet")
+    bufferAdd_INT(effectivePetArmor)
+    bufferAdd_INT(armorPetPositive)
+    bufferAdd_INT(armorPetNegative)
 
     --[[
         1 - Arcane
@@ -729,8 +775,7 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     ]]
 
     for i=1, 5 do
-        local base, resistance, positive, negative = UnitResistance("player", i)
-        bufferAdd_INT(base)
+        local base, resistance, positive, negative = UnitResistance(PLAYER, i)
         bufferAdd_INT(resistance)
         bufferAdd_INT(positive)
         bufferAdd_INT(negative)
@@ -739,19 +784,18 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     local expertise = GetExpertise()
     local expertisePerc, offhandExpertisePercent = GetExpertisePercent()
     
-    bufferSetDebug(true)
-
     bufferAdd_INT(expertise, "expertise")
     bufferAdd_FLOAT(expertisePerc, "expertisePerc")
     bufferAdd_FLOAT(offhandExpertisePercent, "offhandExpertisePercent")
+
 
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
 
     bufferClear()
 
-    local minMeleeDamage, maxMeleeDamage, minMeleeOffHandDamage, maxMeleeOffHandDamage, meleePhysicalBonusPositive, meleePhysicalBonusNegative, meleeDamageBuffPercent = UnitDamage("player")
-    local meleeSpeed, meleeOffhandSpeed = UnitAttackSpeed("player")
-    local meleeAtkPowerBase, meleeAtkPowerPositive, meleeAtkPowerNegative = UnitAttackPower("player")
+    local minMeleeDamage, maxMeleeDamage, minMeleeOffHandDamage, maxMeleeOffHandDamage, meleePhysicalBonusPositive, meleePhysicalBonusNegative, meleeDamageBuffPercent = UnitDamage(PLAYER)
+    local meleeSpeed, meleeOffhandSpeed = UnitAttackSpeed(PLAYER)
+    local meleeAtkPowerBase, meleeAtkPowerPositive, meleeAtkPowerNegative = UnitAttackPower(PLAYER)
     local meleeHaste, meleeHasteBonus = GetCRValues(CR_HASTE_MELEE)
     local meleeCrit, meleeCritBonus = GetCRValues(CR_CRIT_MELEE)
     local meleeHit, meleeHitBonus = GetCRValues(CR_HIT_MELEE)
@@ -1020,8 +1064,8 @@ end
 function PlayerbotsComsEmulator:PLAYER_LOGOUT()
 end
 
-function PlayerbotsComsEmulator:PLAYER_LEVEL_UP()
-    GenerateExperienceReport()
+function PlayerbotsComsEmulator:PLAYER_LEVEL_UP(levelFromEvent)
+    GenerateExperienceReport(levelFromEvent)
 end
 
 function PlayerbotsComsEmulator:BANKFRAME_OPENED()

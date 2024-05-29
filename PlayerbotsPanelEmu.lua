@@ -107,8 +107,8 @@ function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
     _emu:GenerateItemEquippedReport(slot, count, link)
 end
 
-function PlayerbotsPanelEmu:PLAYER_LEVEL_UP()
-    _emu:PLAYER_LEVEL_UP()
+function PlayerbotsPanelEmu:PLAYER_LEVEL_UP(levelFromEvent)
+    _emu:PLAYER_LEVEL_UP(levelFromEvent)
 end
 
 function PlayerbotsPanelEmu:OnEnable()
