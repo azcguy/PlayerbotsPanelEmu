@@ -562,6 +562,7 @@ end
 
 local function GenerateMessage(header, subtype, id, payload)
     if not id then id = 0 end
+    if not _dbchar.master then return end
     local msg = table.concat({
         string.char(header),
         MSG_SEPARATOR,
@@ -686,33 +687,6 @@ end
 
 -- WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! 
 QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
-    --[[
-        ratingIndex - Index of a rating; the following global constants are provided for convenience (number)
-            CR_BLOCK - Block skill
-            CR_CRIT_MELEE - Melee critical strike chance
-            CR_CRIT_RANGED - Ranged critical strike chance
-            CR_CRIT_SPELL - Spell critical strike chance
-            CR_CRIT_TAKEN_MELEE - Melee Resilience
-            CR_CRIT_TAKEN_RANGED - Ranged Resilience
-            CR_CRIT_TAKEN_SPELL - Spell Resilience
-            CR_DEFENSE_SKILL - Defense skill
-            CR_DODGE - Dodge skill
-            CR_HASTE_MELEE - Melee haste
-            CR_HASTE_RANGED - Ranged haste
-            CR_HASTE_SPELL - Spell haste
-            CR_HIT_MELEE - Melee chance to hit
-            CR_HIT_RANGED - Ranged chance to hit
-            CR_HIT_SPELL - Spell chance to hit
-            CR_HIT_TAKEN_MELEE - Unused
-            CR_HIT_TAKEN_RANGED - Unused
-            CR_HIT_TAKEN_SPELL - Unused
-            CR_PARRY - Parry skill
-            CR_WEAPON_SKILL - Weapon skill
-            CR_WEAPON_SKILL_MAINHAND - Main-hand weapon skill
-            CR_WEAPON_SKILL_OFFHAND - Offhand weapon skill
-            CR_WEAPON_SKILL_RANGED - Ranged weapon skill
-    ]]
-
     local function GetCRValues(combatRating)
         local value =  GetCombatRating(combatRating)
         local bonus =  GetCombatRatingBonus(combatRating)
@@ -757,14 +731,7 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
         end
     end
 
-    local _, effectiveArmor, _, armorPositive, armorNegative = UnitArmor(PLAYER)
-    bufferAdd_INT(effectiveArmor)
-    bufferAdd_INT(armorPositive)
-    bufferAdd_INT(armorNegative)
-    local _, effectivePetArmor, _, armorPetPositive, armorPetNegative = UnitArmor("pet")
-    bufferAdd_INT(effectivePetArmor)
-    bufferAdd_INT(armorPetPositive)
-    bufferAdd_INT(armorPetNegative)
+
 
     --[[
         1 - Arcane
@@ -781,29 +748,17 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
         bufferAdd_INT(negative)
     end
 
-    local expertise = GetExpertise()
-    local expertisePerc, offhandExpertisePercent = GetExpertisePercent()
-    
-    bufferAdd_INT(expertise, "expertise")
-    bufferAdd_FLOAT(expertisePerc, "expertisePerc")
-    bufferAdd_FLOAT(offhandExpertisePercent, "offhandExpertisePercent")
-
-
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
 
     bufferClear()
-
-    local minMeleeDamage, maxMeleeDamage, minMeleeOffHandDamage, maxMeleeOffHandDamage, meleePhysicalBonusPositive, meleePhysicalBonusNegative, meleeDamageBuffPercent = UnitDamage(PLAYER)
-    local meleeSpeed, meleeOffhandSpeed = UnitAttackSpeed(PLAYER)
-    local meleeAtkPowerBase, meleeAtkPowerPositive, meleeAtkPowerNegative = UnitAttackPower(PLAYER)
-    local meleeHaste, meleeHasteBonus = GetCRValues(CR_HASTE_MELEE)
-    local meleeCrit, meleeCritBonus = GetCRValues(CR_CRIT_MELEE)
-    local meleeHit, meleeHitBonus = GetCRValues(CR_HIT_MELEE)
-    local meleeResil, meleeResilBonus = GetCRValues(CR_CRIT_TAKEN_MELEE)
     
     -- All floats should be rounded to 2 decimals, so 0.513213 becomes 0.51
+    
+    
+    -- MELEE
 
     bufferAdd_STRING("m")
+    local minMeleeDamage, maxMeleeDamage, minMeleeOffHandDamage, maxMeleeOffHandDamage, meleePhysicalBonusPositive, meleePhysicalBonusNegative, meleeDamageBuffPercent = UnitDamage(PLAYER)
     bufferAdd_FLOAT(minMeleeDamage, "minMeleeDamage")
     bufferAdd_FLOAT(maxMeleeDamage, "maxMeleeDamage") 
     bufferAdd_FLOAT(minMeleeOffHandDamage, "minMeleeOffHandDamage") 
@@ -812,25 +767,169 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     bufferAdd_INT(meleePhysicalBonusNegative, "meleePhysicalBonusNegative")
     bufferAdd_FLOAT(meleeDamageBuffPercent, "meleeDamageBuffPercent") 
 
+    local meleeSpeed, meleeOffhandSpeed = UnitAttackSpeed(PLAYER)
     bufferAdd_FLOAT(meleeSpeed, "meleeSpeed")
     bufferAdd_FLOAT(meleeOffhandSpeed, "meleeOffhandSpeed")
 
+    local meleeAtkPowerBase, meleeAtkPowerPositive, meleeAtkPowerNegative = UnitAttackPower(PLAYER)
     bufferAdd_INT(meleeAtkPowerBase, "meleeAtkPowerBase")
     bufferAdd_INT(meleeAtkPowerPositive, "meleeAtkPowerPositive")
     bufferAdd_INT(meleeAtkPowerNegative, "meleeAtkPowerNegative")
 
+    local meleeHaste, meleeHasteBonus = GetCRValues(CR_HASTE_MELEE)
     bufferAdd_INT(meleeHaste, "meleeHaste")
     bufferAdd_FLOAT(meleeHasteBonus, "meleeHasteBonus")
 
-    bufferAdd_INT(meleeCrit, "meleeCrit")
-    bufferAdd_FLOAT(meleeCritBonus, "meleeCritBonus") 
+    local meleeCritRating, meleeCritRatingBonus = GetCRValues(CR_CRIT_MELEE)
+    local meleeCritChance = GetCritChance()
+    bufferAdd_INT(meleeCritRating, "meleeCritRating")
+    bufferAdd_FLOAT(meleeCritRatingBonus, "meleeCritRatingBonus")
+    bufferAdd_FLOAT(meleeCritChance, "meleeCritChance")
 
+    local meleeHit, meleeHitBonus = GetCRValues(CR_HIT_MELEE)
     bufferAdd_INT(meleeHit, "meleeHit")
-    bufferAdd_FLOAT(meleeHitBonus, "meleeHitBonus") 
+    bufferAdd_FLOAT(meleeHitBonus, "meleeHitBonus")
 
+    local armorPenPercent = GetArmorPenetration()
+    local armorPen, armorPenBonus = GetCRValues(CR_ARMOR_PENETRATION)
+    bufferAdd_INT(armorPen, "armorPen")
+    bufferAdd_FLOAT(armorPenPercent, "armorPenPercent") 
+    bufferAdd_FLOAT(armorPenBonus, "armorPenBonus") 
+
+    local expertise, offhandExpertise = GetExpertise()
+    local expertisePerc, offhandExpertisePercent = GetExpertisePercent()
+    local expertiseRating, expertiseRatingBonus = GetCombatRatingBonus(CR_EXPERTISE)
+    bufferAdd_INT(expertise, "expertise")
+    bufferAdd_INT(offhandExpertise, "offhandExpertise")
+    bufferAdd_FLOAT(expertisePerc, "expertisePerc")
+    bufferAdd_FLOAT(offhandExpertisePercent, "offhandExpertisePercent")
+    bufferAdd_INT(expertiseRating, "expertiseRating")
+    bufferAdd_FLOAT(expertiseRatingBonus, "expertiseRatingBonus")
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    bufferClear()
+
+
+    -- RANGED
+
+    bufferAdd_STRING("r")
+    bufferSetDebug(true)
+    local rangedAttackSpeed, rangedMinDamage, rangedMaxDamage, rangedPhysicalBonusPositive, rangedPhysicalBonusNegative, rangedDamageBuffPercent = UnitRangedDamage(PLAYER);
+    bufferAdd_FLOAT(rangedAttackSpeed, "rangedAttackSpeed")
+    bufferAdd_FLOAT(rangedMinDamage, "rangedMinDamage") 
+    bufferAdd_FLOAT(rangedMaxDamage, "rangedMaxDamage") 
+    bufferAdd_INT(rangedPhysicalBonusPositive, "rangedPhysicalBonusPositive") 
+    bufferAdd_INT(rangedPhysicalBonusNegative, "rangedPhysicalBonusNegative") 
+    bufferAdd_FLOAT(rangedDamageBuffPercent, "rangedDamageBuffPercent")
+
+	local rangedAttackPower, rangedAttackPowerPositive, rangedAttackPowerNegative = UnitRangedAttackPower(PLAYER);
+    bufferAdd_INT(rangedAttackPower, "rangedAttackPower")
+    bufferAdd_INT(rangedAttackPowerPositive, "rangedAttackPowerPositive")
+    bufferAdd_INT(rangedAttackPowerNegative, "rangedAttackPowerNegative")
+
+    local rangedHaste, rangedHasteBonus = GetCRValues(CR_HASTE_RANGED)
+    bufferAdd_INT(rangedHaste, "rangedHaste")
+    bufferAdd_FLOAT(rangedHasteBonus, "rangedHasteBonus")
+
+    local rangedCritRating, rangedCritRatingBonus = GetCRValues(CR_CRIT_RANGED)
+    local rangedCritChance = GetRangedCritChance()
+    bufferAdd_INT(rangedCritRating, "rangedCritRating")
+    bufferAdd_FLOAT(rangedCritRatingBonus, "rangedCritRatingBonus")
+    bufferAdd_FLOAT(rangedCritChance, "rangedCritChance")
+
+    local rangedHit, rangedHitBonus = GetCRValues(CR_HIT_RANGED)
+    bufferAdd_INT(rangedHit, "rangedHit")
+    bufferAdd_FLOAT(rangedHitBonus, "rangedHitBonus")
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    bufferClear()
+
+    -- SPELL
+    bufferAdd_STRING("s")
+
+    for i=2, MAX_SPELL_SCHOOLS do -- skip physical, start at 2
+        bufferAdd_INT(GetSpellBonusDamage(i), "spellBonusDamage_" .. i)
+    end
+
+    bufferAdd_INT(GetSpellBonusHealing(), "spellBonusHealing")
+
+    local spellHit, spellHitBonus = GetCRValues(CR_HIT_SPELL)
+    bufferAdd_INT(spellHit, "spellHit")
+    bufferAdd_FLOAT(spellHitBonus, "spellHitBonus")
+    
+    bufferAdd_FLOAT(GetSpellPenetration(), "spellPenetration")
+    
+    for i=2, MAX_SPELL_SCHOOLS do -- skip physical, start at 2
+        bufferAdd_FLOAT(GetSpellCritChance(i), "spellCritChance_" .. i)
+    end
+    
+    local spellCritRating, spellCritRatingBonus = GetCRValues(CR_CRIT_SPELL)
+    bufferAdd_INT(spellCritRating, "spellCritRating")
+    bufferAdd_FLOAT(spellCritRatingBonus, "spellCritRatingBonus")
+
+    local spellHaste, spellHasteBonus = GetCRValues(CR_HASTE_SPELL)
+    bufferAdd_INT(spellHaste, "spellHaste")
+    bufferAdd_FLOAT(spellHasteBonus, "spellHasteBonus")
+
+    local baseManaRegen, castingManaRegen = GetManaRegen()
+    bufferAdd_FLOAT(baseManaRegen, "baseManaRegen")
+    bufferAdd_FLOAT(castingManaRegen, "castingManaRegen")
+
+    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    bufferClear()
+
+    -- DEFENSES
+    bufferAdd_STRING("d")
+
+    local _, effectiveArmor, _, armorPositive, armorNegative = UnitArmor(PLAYER)
+    bufferAdd_INT(effectiveArmor)
+    bufferAdd_INT(armorPositive)
+    bufferAdd_INT(armorNegative)
+
+    local _, effectivePetArmor, _, armorPetPositive, armorPetNegative = UnitArmor("pet")
+    bufferAdd_INT(effectivePetArmor)
+    bufferAdd_INT(armorPetPositive)
+    bufferAdd_INT(armorPetNegative)
+
+    local baseDefense, modifierDefense = UnitDefense(PLAYER);
+    bufferAdd_INT(baseDefense, "baseDefense")
+    bufferAdd_FLOAT(modifierDefense, "modifierDefense")
+    local defenseRating, defenseRatingBonus = GetCRValues(CR_DEFENSE_SKILL)
+    bufferAdd_INT(defenseRating, "defenseRating")
+    bufferAdd_FLOAT(defenseRatingBonus, "defenseRatingBonus")
+
+	local dodgeChance = GetDodgeChance()
+    local dodgeRating, dodgeRatingBonus = GetCRValues(CR_DODGE)
+    bufferAdd_FLOAT(dodgeChance, "dodgeChance")
+    bufferAdd_INT(dodgeRating, "dodgeRating")
+    bufferAdd_FLOAT(dodgeRatingBonus, "dodgeRatingBonus")
+
+	local blockChance = GetBlockChance()
+    local shieldBlock = GetShieldBlock()
+    local blockRating, blockRatingBonus = GetCRValues(CR_BLOCK)
+    bufferAdd_FLOAT(blockChance, "blockChance")
+    bufferAdd_INT(shieldBlock, "shieldBlock")
+    bufferAdd_INT(blockRating, "blockRating")
+    bufferAdd_FLOAT(blockRatingBonus, "blockRatingBonus")
+
+    local parryChance = GetParryChance()
+    local parryRating, parryRatingBonus = GetCRValues(CR_PARRY)
+    bufferAdd_FLOAT(parryChance, "parryChance")
+    bufferAdd_INT(parryRating, "parryRating")
+    bufferAdd_FLOAT(parryRatingBonus, "parryRatingBonus")
+
+    local meleeResil, meleeResilBonus = GetCRValues(CR_CRIT_TAKEN_MELEE)
     bufferAdd_INT(meleeResil, "meleeResil")
-    bufferAdd_FLOAT(meleeResilBonus, "meleeResilBonus") 
+    bufferAdd_FLOAT(meleeResilBonus, "meleeResilBonus")
 
+    local rangedResil, rangedResilBonus = GetCRValues(CR_CRIT_TAKEN_RANGED)
+    bufferAdd_INT(rangedResil, "rangedResil")
+    bufferAdd_FLOAT(rangedResilBonus, "rangedResilBonus")
+
+    local spellResil, spellResilBonus = GetCRValues(CR_CRIT_TAKEN_SPELL)
+    bufferAdd_INT(spellResil, "spellResil")
+    bufferAdd_FLOAT(spellResilBonus, "spellResilBonus")
+    
     GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, _tconcat(_pbuffer, MSG_SEPARATOR))
 end
 
