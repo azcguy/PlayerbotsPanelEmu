@@ -1,4 +1,4 @@
-PlayerbotsPanelEmuConfig = {}
-local _cfg = PlayerbotsPanelEmuConfig
+PlayerbotsPanelEmu.config = {}
+local _self = PlayerbotsPanelEmu.config
 
-_cfg.debugLevel = 2
+_self.debugLevel = 2

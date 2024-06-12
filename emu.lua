@@ -1,14 +1,15 @@
-PlayerbotsComsEmulator = {}
-local _emu = PlayerbotsComsEmulator
-local _cfg = PlayerbotsPanelEmuConfig
+PlayerbotsPanelEmu.emulator = {}
+local _self = PlayerbotsPanelEmu.emulator
+local _cfg = PlayerbotsPanelEmu.config
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
+local _broker = PlayerbotsPanelEmu.broker
+local _const = PlayerbotsPanelEmu.broker.consts
+local _parser = PlayerbotsPanelEmu.broker.util.parser.Create()
 local _dbchar = {}
 local _simLogout = false
-
-local _prefixCode = "pb8aj2" -- just something unique from other addons
-local _botStatus = {}
 local PLAYER = "player"
-_botStatus.handshake = false -- reset on logout
+local _selfStatus = {}
+_selfStatus.handshake = false -- reset on logout
 
 -- ============================================================================================
 -- ============== Locals optimization, use in hotpaths
@@ -39,415 +40,6 @@ _currencyCache.honor = 0
 _currencyCache.arenaPoints = 0
 _currencyCache.other = {}
 
-
--- ============================================================================================
--- SHARED BETWEEN EMU/BROKER
-
-local MSG_SEPARATOR = ":"
-local MSG_SEPARATOR_BYTE      = _strbyte(":")
-local FLOAT_DOT_BYTE          =  _strbyte(".")
-local BYTE_ZERO               = _strbyte("0")
-local BYTE_MINUS              = _strbyte("-")
-local BYTE_NULL_LINK          = _strbyte("~")
-local MSG_HEADER = {}
-local NULL_LINK = "~"
-local UTF8_NUM_FIRST          = _strbyte("1") -- 49
-local UTF8_NUM_LAST           = _strbyte("9") -- 57
-
-MSG_HEADER.SYSTEM =             _strbyte("s")
-MSG_HEADER.REPORT =             _strbyte("r")
-MSG_HEADER.QUERY =              _strbyte("q")
-MSG_HEADER.COMMAND =            _strbyte("c")
-
-PlayerbotsBrokerReportType = {}
-local REPORT_TYPE = PlayerbotsBrokerReportType
-REPORT_TYPE.ITEM_EQUIPPED =     _strbyte("g") -- gear item equipped or unequipped
-REPORT_TYPE.CURRENCY =          _strbyte("c") -- currency changed
-REPORT_TYPE.INVENTORY =         _strbyte("i") -- inventory changed (bag changed, item added / removed / destroyed)
-REPORT_TYPE.TALENTS =           _strbyte("t") -- talent learned / spec changed / talents reset
-REPORT_TYPE.SPELLS =            _strbyte("s") -- spell learned
-REPORT_TYPE.QUEST =             _strbyte("q") -- single quest accepted, abandoned, changed, completed
-REPORT_TYPE.EXPERIENCE =        _strbyte("e") -- level, experience
-REPORT_TYPE.STATS =             _strbyte("S") -- all stats and combat ratings
-
-local SYS_MSG_TYPE = {}
-SYS_MSG_TYPE.HANDSHAKE =        _strbyte("h")
-SYS_MSG_TYPE.PING =             _strbyte("p")
-SYS_MSG_TYPE.LOGOUT =           _strbyte("l")
-
-PlayerbotsBrokerQueryType = {}
-local QUERY_TYPE = PlayerbotsBrokerQueryType
-QUERY_TYPE.WHO        =         _strbyte("w") -- level, class, spec, location, experience and more
-QUERY_TYPE.CURRENCY   =         _strbyte("c") -- money, honor, tokens
-CURRENCY_MONEY        =                  "g" -- subtype: money
-CURRENCY_OTHER        =                  "c" -- subtype: other currency (with id)
-QUERY_TYPE.GEAR       =         _strbyte("g") -- only what is equipped
-QUERY_TYPE.INVENTORY  =         _strbyte("i") -- whats in the bags and bags themselves
-QUERY_TYPE.TALENTS    =         _strbyte("t") -- talents and talent points 
-QUERY_TYPE.SPELLS     =         _strbyte("s") -- spellbook
-QUERY_TYPE.QUESTS     =         _strbyte("q") -- all quests
-QUERY_TYPE.STRATEGIES =         _strbyte("S")
-QUERY_TYPE.STATS      =         _strbyte("T") -- all
---[[ Stats are grouped and sent together 
-    subtypes:
-        b - base + resists
-        m - melee
-        r - ranged
-        s - spell
-        d - defenses
-]] 
-QUERY_TYPE.STATS_BASE     =         _strbyte("b") -- all stats
-QUERY_TYPE.STATS_MELEE    =         _strbyte("m") -- all stats
-QUERY_TYPE.STATS_RANGED   =         _strbyte("r") -- all stats
-QUERY_TYPE.STATS_SPELL    =         _strbyte("s") -- all stats
-QUERY_TYPE.STATS_DEFENSES =         _strbyte("d") -- all stats
-
-PlayerbotsBrokerQueryOpcode = {}
-local QUERY_OPCODE = PlayerbotsBrokerQueryOpcode
-QUERY_OPCODE.PROGRESS =         _strbyte("p") -- query is in progress
-QUERY_OPCODE.FINAL    =         _strbyte("f") -- final message of the query, contains the final payload, and closes query
--- bytes 49 - 57 are errors
-
-PlayerbotsBrokerCommandType = {}
-local COMMAND = PlayerbotsBrokerCommandType
-COMMAND.STATE        =          _strbyte("s")
---[[ 
-    subtypes:
-        s - stay
-        f - follow
-        g - grind
-        F - flee
-        r - runaway (kite mob)
-        l - leave party
-]] 
-COMMAND.ITEM          =         _strbyte("i")
-COMMAND.ITEM_EQUIP    =         _strbyte("e")
-COMMAND.ITEM_UNEQUIP  =         _strbyte("u")
-COMMAND.ITEM_USE      =         _strbyte("U")
-COMMAND.ITEM_USE_ON   =         _strbyte("t")
-COMMAND.ITEM_DESTROY  =         _strbyte("d")
-COMMAND.ITEM_SELL     =         _strbyte("s")
-COMMAND.ITEM_SELL_JUNK=         _strbyte("j")
-COMMAND.ITEM_BUY      =         _strbyte("b")
---[[ 
-    subtypes:
-        e - equip
-        u - unequip
-        U - use
-        t - use on target
-        d - destroy
-        s - sell
-        j - sell junk
-        b - buy
-]] 
-COMMAND.GIVE_GOLD     =         _strbyte("g")
-COMMAND.BANK          =         _strbyte("b")
---[[ 
-    subtypes:
-        d - bank deposit
-        w - bank withdraw
-        D - guild bank deposit 
-        W - guild bank withdraw
-]]
-COMMAND.QUEST          =         _strbyte("b")
---[[ 
-    subtypes:
-        a - accept quest
-        A - accept all
-        d - drop quest
-        r - choose reward item
-        t - talk to quest npc
-        u - use game object (use los query to obtain the game object link)
-]]
-COMMAND.MISC           =         _strbyte("m")
---[[ 
-    subtypes:
-        t - learn from trainer
-        c - cast spell
-        h - set home at innkeeper
-        r - release spirit when dead
-        R - revive when near spirit healer
-        s - summon
-]]
-
--- ============================================================================================
--- PARSER 
-
--- This is a forward parser, call next..() functions to get value of type required by the msg
--- If the payload is null, the parser is considered broken and functions will return default non null values
-local _parser = {
-    separator = MSG_SEPARATOR_BYTE,
-    dotbyte = FLOAT_DOT_BYTE,
-    buffer = {}
-}
-
-local BYTE_LINK_SEP = _strbyte("|")
-local BYTE_LINK_TERMINATOR = _strbyte("r")
-
-_parser.start = function (self, payload)
-    if not payload then 
-        self.broken = true
-        return
-    end
-    self.payload = payload
-    self.len = _strlen(payload)
-    self.broken = false
-    self.bufferCount = 0
-    self.cursor = 1
-end
-_parser.nextString = function(self)
-    if self.broken then
-        return "NULL"
-    end
-    local strbyte = _strbyte
-    local strchar = _strchar
-    local buffer = self.buffer
-    local p = self.payload
-    for i = self.cursor, self.len+1 do
-        local c = strbyte(p, i)
-        if c == nil or c == self.separator then
-            local bufferCount = self.bufferCount
-            if bufferCount > 0 then
-                self.cursor = i + 1
-                if buffer[1] == NULL_LINK then
-                    self.bufferCount = 0
-                    return nil 
-                end
-                
-                local result = _tconcat(buffer, nil, 1, bufferCount)
-                self.bufferCount = 0
-                return result
-            else
-                return nil
-            end
-        else
-            self.cursor = i
-            local bufferCount = self.bufferCount + 1
-            self.bufferCount = bufferCount
-            buffer[bufferCount] = strchar(c)
-        end
-    end
-end
-
-_parser.stringToEnd = function(self)
-    if self.broken then
-        return "NULL"
-    end
-    self.bufferCount = 0
-    local p = self.payload
-    local c = strbyte(p, self.cursor)
-    if c == BYTE_NULL_LINK then
-        return nil 
-    else
-        return _strsub(p, self.cursor)
-    end
-end
-
-_parser.nextLink = function(self)
-    if self.broken then
-        return nil
-    end
-    local strbyte = _strbyte
-    local strchar = _strchar
-    local buffer = self.buffer
-    local p = self.payload
-    local start = self.cursor
-    local v = false -- validate  the | char
-    -- if after the validator proceeds an 'r' then we terminate the link
-    for i = self.cursor, self.len+1 do
-        local c = strbyte(p, i)
-        self.cursor = i
-        if v == true then
-            if c == BYTE_LINK_TERMINATOR then
-                local result = _strsub(p, start, i)
-                self.cursor = i + 2 -- as we dont end on separator we jump 1 ahead
-                return result
-            else
-                v = false
-            end
-        end
-
-        if c == BYTE_LINK_SEP then
-            v = true
-        end
-
-        if c == NULL_LINK then
-            self.cursor = i + 1
-            return nil
-        end
-
-        if c == nil then
-            -- we reached the end of payload but didnt close the link, the link is either not a link or invalid
-            -- return null?
-            return nil
-        end
-    end
-end
-
-_parser.nextInt = function(self)
-    if self.broken then
-        return 0
-    end
-    local buffer = self.buffer
-    local p = self.payload
-    local strbyte = _strbyte
-    local pow = _pow
-    local floor = _floor
-    for i = self.cursor, self.len + 1 do
-        local c = strbyte(p, i)
-        if c == nil or c == self.separator then
-            local bufferCount = self.bufferCount
-            if bufferCount > 0 then
-                self.cursor = i + 1
-                local result = 0
-                local sign = 1
-                local start = 1
-                if buffer[1] == BYTE_MINUS then
-                    sign = -1
-                    start = 2
-                end
-                for t= start, bufferCount do
-                    result = result + ((buffer[t]-48)*pow(10, bufferCount - t))
-                end
-                result = result * sign
-                self.bufferCount = 0
-                return floor(result)
-            end
-        else
-            self.cursor = i
-            local bufferCount = self.bufferCount + 1
-            self.bufferCount = bufferCount
-            buffer[bufferCount] = c
-        end
-    end
-end
-_parser.nextFloat = function(self)
-    if self.broken then
-        return 0.0
-    end
-    local tobyte = string.byte
-    local buffer = self.buffer
-    local p = self.payload
-    local pow = _pow
-    for i = self.cursor, self.len + 1 do
-        local c = tobyte(p, i)
-        if c == nil or c == self.separator then
-            local bufferCount = self.bufferCount
-            if bufferCount > 0 then
-                self.cursor = i + 1
-                local result = 0
-                local dotPos = -1
-                local sign = 1
-                local start = 1
-                if buffer[1] == BYTE_MINUS then
-                    sign = -1
-                    start = 2
-                end
-                -- find dot
-                for t=1, bufferCount do
-                    if buffer[t] == self.dotbyte then
-                        dotPos = t
-                        break
-                    end
-                end
-                -- if no dot, use simplified int algo
-                if dotPos == -1 then
-                    for t=start, bufferCount do
-                        result = result + ((buffer[t]-48)*pow(10, bufferCount - t))
-                    end
-                    result = result * sign
-                    self.bufferCount = 0
-                    return result -- still returns a float because of pow
-                else
-                    for t=start, dotPos-1 do -- int
-                        result = result + ((buffer[t]-48)*pow(10, dotPos - t - 1))
-                    end
-                    for t=dotPos+1, bufferCount do -- decimal
-                        result = result + ((buffer[t]-48)* pow(10, (t-dotPos) * -1))
-                    end
-                    result = result * sign
-                    self.bufferCount = 0
-                    return result
-                end
-            end
-        else
-            self.cursor = i
-            local bufferCount = self.bufferCount + 1
-            self.bufferCount = bufferCount
-            buffer[bufferCount] = c
-        end
-    end
-end
-_parser.nextBool = function (self)
-    if self.broken then
-        return false
-    end
-    local strbyte = _strbyte
-    local strchar = _strchar
-    local buffer = self.buffer
-    local p = self.payload
-    for i = self.cursor, self.len+1 do
-        local c = strbyte(p, i)
-        if c == nil or c == self.separator then
-            if self.bufferCount > 0 then
-                self.cursor = i + 1
-                self.bufferCount = 0
-                if buffer[1] == BYTE_ZERO then
-                    return false
-                else
-                    return true
-                end
-            else
-                return nil
-            end
-        else
-            self.cursor = i
-            local bufferCount = self.bufferCount + 1
-            self.bufferCount = bufferCount
-            buffer[bufferCount] = c
-        end
-    end
-end
-
-_parser.nextChar = function (self)
-    if self.broken then
-        return false
-    end
-    local strbyte = _strbyte
-    local strchar = _strchar
-    local p = self.payload
-    local result = nil
-    for i = self.cursor, self.len+1 do
-        local c = strbyte(p, i)
-        if c == nil or c == self.separator then
-            self.cursor = i + 1
-            self.bufferCount = 0
-            return result
-        else
-            self.cursor = i
-            if not result then
-                result = strchar(c)
-            end
-        end
-    end
-end
-
-_parser.nextCharAsByte = function (self)
-    return _strbyte(self:nextChar())
-end
-
-_parser.validateLink = function(link)
-    if link == nil then return false end
-    local l = _strlen(link)
-    local v1 = _strbyte(link, l) == BYTE_LINK_TERMINATOR
-    local v2 = _strbyte(link, l-1) == BYTE_LINK_SEP
-    return v1 and v2
-end
-
------------------------------------------------------------------------------
------ PARSER END / SHARED REGION END
------------------------------------------------------------------------------
-
 local _pbuffer = {} -- payload buffer
 local _pbufferCount = 0
 local _pbufferRound = false
@@ -456,7 +48,7 @@ local _pbufferDebugMode = false
 local function bufferAdd_STRING(str, debugName)
     _pbufferCount = _pbufferCount + 1
     if str == nil then
-        str = NULL_LINK
+        str = _const.NULL_LINK
     end
     if _pbufferDebugMode and debugName then
         print("BUFFER: " .. debugName .. " - " .. str)
@@ -493,7 +85,7 @@ local function bufferClear()
 end
 
 local function bufferToString()
-    local result = _tconcat(_pbuffer, MSG_SEPARATOR)
+    local result = _tconcat(_pbuffer, _const.MSG_SEPARATOR)
     bufferClear()
     return result
 end
@@ -565,13 +157,13 @@ local function GenerateMessage(header, subtype, id, payload)
     if not _dbchar.master then return end
     local msg = table.concat({
         string.char(header),
-        MSG_SEPARATOR,
+        _const.MSG_SEPARATOR,
         string.char(subtype),
-        MSG_SEPARATOR,
+        _const.MSG_SEPARATOR,
         string.format("%03d", id),
-        MSG_SEPARATOR,
+        _const.MSG_SEPARATOR,
         payload})
-    SendAddonMessage(_prefixCode, msg, "WHISPER", _dbchar.master)
+    SendAddonMessage(_const.prefixCode, msg, "WHISPER", _dbchar.master)
     print("|cff7afffb >> MASTER |r " ..  msg)
 end
 
@@ -584,71 +176,69 @@ local function GenerateExperienceReport(levelFromEvent)
     bufferClear()
     bufferAdd_INT(level)
     bufferAdd_FLOAT(floatXp)
-    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.EXPERIENCE, 0, bufferToString())
+    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT_TYPE.EXPERIENCE, 0, bufferToString())
 end
 
-function PlayerbotsComsEmulator:GenerateItemEquippedReport(slot, count, link)
-    local finalLink = _eval(link, link, NULL_LINK)
-    local payload = _tconcat({slot, count, finalLink}, MSG_SEPARATOR)
-    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
+function _self:GenerateItemEquippedReport(slot, count, link)
+    local finalLink = _eval(link, link, _const.NULL_LINK)
+    local payload = _tconcat({slot, count, finalLink}, _const.MSG_SEPARATOR)
+    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
 end
 
-function PlayerbotsComsEmulator:Init()
+function _self:Init()
     print("Starting emulator")
     _dbchar = PlayerbotsPanelEmu.db.char
-    PlayerbotsComsEmulator.ScanBags(false)
-    PlayerbotsComsEmulator.ScanCurrencies(false)
+    _self.ScanBags(false)
+    _self.ScanCurrencies(false)
     CastSpellByID(13159)
-
 end
 
-
-function PlayerbotsComsEmulator:Update(elapsed)
+function _self:Update(elapsed)
     _time = _time + elapsed
 
     if _simLogout then return end
 
-    if not _botStatus.handshake then   -- send handshake every second 
+    if not _selfStatus.handshake then   -- send handshake every second 
         if _nextHandshakeTime < _time then
             print("Sending handshake")
             _nextHandshakeTime = _time + 1
-            GenerateMessage(MSG_HEADER.SYSTEM, SYS_MSG_TYPE.HANDSHAKE)
+            GenerateMessage(_const.MSG_HEADER.SYSTEM, _const.SYS_MSG_TYPE.HANDSHAKE)
         end
     else
         if _nextBagScanTime < _time then
             _nextBagScanTime = _time + _bagScanTickrate
-            if not CheckInteractDistance(_dbchar.master, 2) then
+            if  not CheckInteractDistance(_dbchar.master, 2) then
                 CastSpellByID(13159)
                 FollowUnit(_dbchar.master)
             end
-            PlayerbotsComsEmulator.ScanCurrencies(false)
-            PlayerbotsComsEmulator.ScanBagChanges(-2, false)
+            _self.ScanCurrencies(false)
+            _self.ScanBagChanges(-2, false)
             for i = 0, 4 do
-                PlayerbotsComsEmulator.ScanBagChanges(i, false)
+                _self.ScanBagChanges(i, false)
             end
             if _atBank  then
-                PlayerbotsComsEmulator.ScanBagChanges(-1, false)
-                PlayerbotsComsEmulator.ScanBags(false, 5, 11)
+                _self.ScanBagChanges(-1, false)
+                _self.ScanBags(false, 5, 11)
             end
         end
     end
 end
 
 local SYS_MSG_HANDLERS = {}
-SYS_MSG_HANDLERS[SYS_MSG_TYPE.HANDSHAKE] = function(id, payload)
-    _botStatus.handshake = true
+SYS_MSG_HANDLERS[_const.SYS_MSG_TYPE.HANDSHAKE] = function(id, payload)
+    _selfStatus.handshake = true
 end
 
-SYS_MSG_HANDLERS[SYS_MSG_TYPE.PING] = function(id, payload)
-    GenerateMessage(MSG_HEADER.SYSTEM, SYS_MSG_TYPE.PING)
+SYS_MSG_HANDLERS[_const.SYS_MSG_TYPE.PING] = function(id, payload)
+    GenerateMessage(_const.MSG_HEADER.SYSTEM, _const.SYS_MSG_TYPE.PING)
 end
 
-SYS_MSG_HANDLERS[SYS_MSG_TYPE.LOGOUT] = function(id, payload)
-    _botStatus.handshake = false
+SYS_MSG_HANDLERS[_const.SYS_MSG_TYPE.LOGOUT] = function(id, payload)
+    _selfStatus.handshake = false
 end
 
 local QUERY_MSG_HANDLERS = {}
-QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
+QUERY_MSG_HANDLERS[_const.QUERY.WHO] = function (id, payload)
     -- CLASS(token):LEVEL(1-80):SECOND_SPEC_UNLOCKED(0-1):ACTIVE_SPEC(1-2):POINTS1:POINTS2:POINTS3:POINTS4:POINTS5:POINTS6:FLOAT_EXP:LOCATION
     -- PALADIN:65:1:1:5:10:31:40:5:10:0.89:Blasted Lands 
     local _, class = UnitClass(PLAYER)
@@ -660,6 +250,9 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
     local level = UnitLevel(PLAYER)
     local zone = GetZoneText()
     local floatXp = inverseLerp(0.0, UnitXPMax(PLAYER), UnitXP(PLAYER))
+    if floatXp ~= floatXp then
+        floatXp = 0
+    end
     local points4 = 0 -- second spec
     local points5 = 0
     local points6 = 0
@@ -681,12 +274,21 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.WHO] = function (id, payload)
         points6,
         floatXp,
         zone
-    }, MSG_SEPARATOR)
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, payload)
+    }, _const.MSG_SEPARATOR)
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, payload)
 end
 
--- WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! WIP! 
-QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
+QUERY_MSG_HANDLERS[_const.QUERY.REPUTATION] = function (id, payload)
+	local numFactions = GetNumFactions();
+    for i=1, numFactions do
+	    local name, description, standingID, barMin, barMax, barValue, atWarWith, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild = GetFactionInfo(i);
+        print(name, barValue, _broker.data.factionId.list[name])
+    end
+
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, payload)
+end
+
+QUERY_MSG_HANDLERS[_const.QUERY.STATS] = function (id, payload)
     local function GetCRValues(combatRating)
         local value =  GetCombatRating(combatRating)
         local bonus =  GetCombatRatingBonus(combatRating)
@@ -748,7 +350,7 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
         bufferAdd_INT(negative)
     end
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, _const.MSG_SEPARATOR))
 
     bufferClear()
     
@@ -806,14 +408,13 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     bufferAdd_INT(expertiseRating, "expertiseRating")
     bufferAdd_FLOAT(expertiseRatingBonus, "expertiseRatingBonus")
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, _const.MSG_SEPARATOR))
     bufferClear()
 
 
     -- RANGED
 
     bufferAdd_STRING("r")
-    bufferSetDebug(true)
     local rangedAttackSpeed, rangedMinDamage, rangedMaxDamage, rangedPhysicalBonusPositive, rangedPhysicalBonusNegative, rangedDamageBuffPercent = UnitRangedDamage(PLAYER);
     bufferAdd_FLOAT(rangedAttackSpeed, "rangedAttackSpeed")
     bufferAdd_FLOAT(rangedMinDamage, "rangedMinDamage") 
@@ -841,7 +442,7 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     bufferAdd_INT(rangedHit, "rangedHit")
     bufferAdd_FLOAT(rangedHitBonus, "rangedHitBonus")
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, _const.MSG_SEPARATOR))
     bufferClear()
 
     -- SPELL
@@ -875,7 +476,7 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     bufferAdd_FLOAT(baseManaRegen, "baseManaRegen")
     bufferAdd_FLOAT(castingManaRegen, "castingManaRegen")
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, _tconcat(_pbuffer, _const.MSG_SEPARATOR))
     bufferClear()
 
     -- DEFENSES
@@ -930,10 +531,10 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.STATS] = function (id, payload)
     bufferAdd_INT(spellResil, "spellResil")
     bufferAdd_FLOAT(spellResilBonus, "spellResilBonus")
     
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, _tconcat(_pbuffer, MSG_SEPARATOR))
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, _tconcat(_pbuffer, _const.MSG_SEPARATOR))
 end
 
-QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
+QUERY_MSG_HANDLERS[_const.QUERY.GEAR] = function (id, _)
     -- Inventory slots
     -- INVSLOT_AMMO    = 0;
     -- INVSLOT_HEAD    = 1; INVSLOT_FIRST_EQUIPPED = INVSLOT_HEAD;
@@ -960,22 +561,22 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.GEAR] = function (id, _)
         local link = GetInventoryItemLink(PLAYER, i)
         if link then
             local count = GetInventoryItemCount(PLAYER, i)
-            local payload = _tconcat({i, count, link}, MSG_SEPARATOR)
-            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+            local payload = _tconcat({i, count, link}, _const.MSG_SEPARATOR)
+            GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, payload)
         end
     end
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, nil)
 end
 
-QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
+QUERY_MSG_HANDLERS[_const.QUERY.INVENTORY] = function (id, _)
 
     local function genBag(bag)
         local name = GetBagName(bag)
         if name then 
             local slots = GetContainerNumSlots(bag)
             local _, link, _, _, _, _, _, _, _, _, _ = GetItemInfo(name)
-            local payload = _tconcat({"b", tostring(bag), tostring(slots), link }, MSG_SEPARATOR)
-            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+            local payload = _tconcat({"b", tostring(bag), tostring(slots), link }, _const.MSG_SEPARATOR)
+            GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, payload)
         end
     end
 
@@ -989,8 +590,8 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
         for slot = 1, slots do
             local texture, count, locked, quality, readable, lootable, link = GetContainerItemInfo(bag, slot)
             if link then
-                local payload = _tconcat({"i", tostring(bag), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
-                GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+                local payload = _tconcat({"i", tostring(bag), tostring(slot), tostring(count), link }, _const.MSG_SEPARATOR)
+                GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, payload)
             end
         end
     end
@@ -1000,59 +601,59 @@ QUERY_MSG_HANDLERS[QUERY_TYPE.INVENTORY] = function (id, _)
         genItems(bag)
     end
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, nil)
 end
 
-QUERY_MSG_HANDLERS[QUERY_TYPE.CURRENCY] = function (id, payload)
+QUERY_MSG_HANDLERS[_const.QUERY.CURRENCY] = function (id, payload)
     local cache = _currencyCache
-    local payload = _tconcat({CURRENCY_MONEY, tostring(cache.gold), tostring(cache.silver), tostring(cache.copper) }, MSG_SEPARATOR) -- report gold changed
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+    local payload = _tconcat({_const.QUERY.CURRENCY_MONEY, tostring(cache.gold), tostring(cache.silver), tostring(cache.copper) }, _const.MSG_SEPARATOR) -- report gold changed
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, payload)
 
     for itemId, count in pairs(_currencyCache.other) do
         if itemId ~= 0 then
-            local payload = _tconcat({CURRENCY_OTHER, tostring(itemId), tostring(count) }, MSG_SEPARATOR) -- report other currency changed
-            GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.PROGRESS, id, payload)
+            local payload = _tconcat({_const.QUERY.CURRENCY_OTHER, tostring(itemId), tostring(count) }, _const.MSG_SEPARATOR) -- report other currency changed
+            GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.PROGRESS, id, payload)
         end
     end
 
-    GenerateMessage(MSG_HEADER.QUERY, QUERY_OPCODE.FINAL, id, nil)
+    GenerateMessage(_const.MSG_HEADER.QUERY, _const.QUERY_OPCODE.FINAL, id, nil)
 end
 
 local COMMAND_HANDLERS_ITEM = {}
-COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE] = function ()
+COMMAND_HANDLERS_ITEM[_const.COMMAND.ITEM_USE] = function ()
     print("cmd.item_use")
     local link = _parser:nextLink()
-    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+    local bag, slot, item = _self.FindItemByLink(link)
     if item then
         UseContainerItem(bag, slot, "player")
     end
 end
 
-COMMAND_HANDLERS_ITEM[COMMAND.ITEM_USE_ON] = function ()
+COMMAND_HANDLERS_ITEM[_const.COMMAND.ITEM_USE_ON] = function ()
     print("cmd.item_use_on")
     local link1 = _parser:nextLink()
     local link2 = _parser:nextLink()
-    local bag1, slot1, item1 = PlayerbotsComsEmulator.FindItemByLink(link1)
-    local bag2, slot2, item2 = PlayerbotsComsEmulator.FindItemByLink(link2)
+    local bag1, slot1, item1 = _self.FindItemByLink(link1)
+    local bag2, slot2, item2 = _self.FindItemByLink(link2)
     if item1 and item2 then
         PickupItem(item1.link)
         -- Unfinished
     end
 end
 
-COMMAND_HANDLERS_ITEM[COMMAND.ITEM_EQUIP] = function ()
+COMMAND_HANDLERS_ITEM[_const.COMMAND.ITEM_EQUIP] = function ()
     print("cmd.item_equip")
     local link = _parser:nextLink()
-    local bag, slot, item = PlayerbotsComsEmulator.FindItemByLink(link)
+    local bag, slot, item = _self.FindItemByLink(link)
     if item then
         UseContainerItem(bag, slot, "player")
     end
 end
 
-COMMAND_HANDLERS_ITEM[COMMAND.ITEM_UNEQUIP] = function ()
+COMMAND_HANDLERS_ITEM[_const.COMMAND.ITEM_UNEQUIP] = function ()
     print("cmd.item_unequip")
     local link = _parser:nextLink()
-    local eslot = PlayerbotsComsEmulator.FindEquipSlotByLink(link)
+    local eslot = _self.FindEquipSlotByLink(link)
     if eslot then
         ClearCursor()
         PickupInventoryItem(eslot)
@@ -1070,7 +671,7 @@ COMMAND_HANDLERS_ITEM[COMMAND.ITEM_UNEQUIP] = function ()
             end
         end
     end 
-    PlayerbotsComsEmulator:ScanBags()
+    _self:ScanBags()
 end
 
 --COMMAND_HANDLERS_ITEM[COMMAND.ITEM_TRADE] = function ()
@@ -1085,7 +686,7 @@ end
 --end
 
 local COMMAND_HANDLERS = {}
-COMMAND_HANDLERS[COMMAND.ITEM] = function (id, payload)
+COMMAND_HANDLERS[_const.COMMAND.ITEM] = function (id, payload)
     _parser:start(payload)
     local subCmd = _parser:nextCharAsByte()
     local impl = COMMAND_HANDLERS_ITEM[subCmd]
@@ -1097,31 +698,31 @@ end
 
 
 local MSG_HANDLERS = {}
-MSG_HANDLERS[MSG_HEADER.SYSTEM] = SYS_MSG_HANDLERS
-MSG_HANDLERS[MSG_HEADER.REPORT] = {}
-MSG_HANDLERS[MSG_HEADER.COMMAND] = COMMAND_HANDLERS
+MSG_HANDLERS[_const.MSG_HEADER.SYSTEM] = SYS_MSG_HANDLERS
+MSG_HANDLERS[_const.MSG_HEADER.REPORT] = {}
+MSG_HANDLERS[_const.MSG_HEADER.COMMAND] = COMMAND_HANDLERS
 
 --EquipItemByName
 
-function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
+function _self:CHAT_MSG_ADDON(prefix, message, channel, sender)
     print("|cffb4ff29 << MASTER |r " .. message)
     if sender == _dbchar.master then
-        if prefix == _prefixCode then
+        if prefix == _const.prefixCode then
             -- confirm that the message has valid format
             local header, sep1, subtype, sep2, idb1, idb2, idb3, sep3 = _strbyte(message, 1, 8)
-            local _separatorByte = MSG_SEPARATOR_BYTE
+            local _separatorByte = _const.MSG_SEPARATOR_BYTE
             -- BYTES
             -- 1 [HEADER] 2 [SEPARATOR] 3 [SUBTYPE/QUERY_OPCODE] 4 [SEPARATOR] 5-6-7 [ID] 8 [SEPARATOR] 9 [PAYLOAD / NEXT QUERY]
             -- s:p:999:payload
             if sep1 == _separatorByte and sep2 == _separatorByte and sep3 == _separatorByte then
-                if header == MSG_HEADER.QUERY then
+                if header == _const.MSG_HEADER.QUERY then
                     -- here we treat queries differently because master can pack multiple queries into a single message
                     -- total length of a query is 8 bytes, so in a single message we can pack 30 queries (taking into account trailing sep) (254 max length/8)
                     for offset = 0, 29 do
                         if offset > 0 then
                             header, _, subtype, _, idb1, idb2, idb3, _ = _strbyte(message, 8 * offset, 8 * (offset + 1))
                         end
-                        if header and header == MSG_HEADER.QUERY then
+                        if header and header == _const.MSG_HEADER.QUERY then
                             local qhandler = QUERY_MSG_HANDLERS[subtype]
                             if qhandler then
                                 local id = ((idb1-48) * 100) + ((idb2-48) * 10) + (idb3-48)
@@ -1147,47 +748,47 @@ function PlayerbotsComsEmulator:CHAT_MSG_ADDON(prefix, message, channel, sender)
     end
 end
 
-function PlayerbotsComsEmulator:SimLogout()
-    GenerateMessage(MSG_HEADER.SYSTEM, SYS_MSG_TYPE.LOGOUT)
+function _self:SimLogout()
+    GenerateMessage(_const.MSG_HEADER.SYSTEM, _const.SYS_MSG_TYPE.LOGOUT)
     _simLogout = true
-    _botStatus.handshake = false
+    _selfStatus.handshake = false
 end
 
-function PlayerbotsComsEmulator:SimLogin()
+function _self:SimLogin()
     _simLogout = false
 end
 
-function PlayerbotsComsEmulator:PLAYER_LOGIN()
+function _self:PLAYER_LOGIN()
 end
 
-function PlayerbotsComsEmulator:PLAYER_LOGOUT()
+function _self:PLAYER_LOGOUT()
 end
 
-function PlayerbotsComsEmulator:PLAYER_LEVEL_UP(levelFromEvent)
+function _self:PLAYER_LEVEL_UP(levelFromEvent)
     GenerateExperienceReport(levelFromEvent)
 end
 
-function PlayerbotsComsEmulator:BANKFRAME_OPENED()
+function _self:BANKFRAME_OPENED()
     _atBank = true
 end
 
-function PlayerbotsComsEmulator:BANKFRAME_CLOSED()
+function _self:BANKFRAME_CLOSED()
     _atBank = false
 end
 
-function PlayerbotsComsEmulator:TRADE_ACCEPT_UPDATE(player, target)
+function _self:TRADE_ACCEPT_UPDATE(player, target)
     if target == 1 then
         AcceptTrade()
     end
 end
 
-function PlayerbotsComsEmulator.SetBagChanged(bagSlot)
+function _self.SetBagChanged(bagSlot)
     if bagSlot >= 0 then
         _changedBags[bagSlot] = true
     end
 end
 
-function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
+function _self.ScanBagChanges(bagSlot, silent)
     local bagState = _bagstates[bagSlot]
     local specialBag = bagSlot <= 0
     local bagChanged = false
@@ -1209,15 +810,15 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
                 bagState.link = link
             end
             if not silent and bagChanged then
-                local payload = _tconcat({"b", tostring(bagSlot), tostring(size), link }, MSG_SEPARATOR)
-                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+                local payload = _tconcat({"b", tostring(bagSlot), tostring(size), link }, _const.MSG_SEPARATOR)
+                GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.INVENTORY, nil, payload)
             end
         else
             if not silent and bagState.link then -- bag was removed from this slot
                 bagState.link = nil
                 bagState.size = 0
-                local payload = _tconcat({"b", tostring(bagSlot), tostring(0), NULL_LINK }, MSG_SEPARATOR)
-                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+                local payload = _tconcat({"b", tostring(bagSlot), tostring(0), _const.NULL_LINK }, _const.MSG_SEPARATOR)
+                GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.INVENTORY, nil, payload)
             end
         end
     end
@@ -1240,8 +841,8 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
                     itemState.count = count
 
                     if not silent then
-                        local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), link }, MSG_SEPARATOR)
-                        GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+                        local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), link }, _const.MSG_SEPARATOR)
+                        GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.INVENTORY, nil, payload)
                     end
                 end
             end
@@ -1282,23 +883,23 @@ function PlayerbotsComsEmulator.ScanBagChanges(bagSlot, silent)
             itemState.link = link
             itemState.count = count
             if not silent and shouldReport then
-                local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), _eval(link, link, NULL_LINK) }, MSG_SEPARATOR)
-                GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.INVENTORY, nil, payload)
+                local payload = _tconcat({"i", tostring(bagSlot), tostring(slot), tostring(count), _eval(link, link, _const.NULL_LINK) }, _const.MSG_SEPARATOR)
+                GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.INVENTORY, nil, payload)
             end
         end
     end
 end
 
-function  PlayerbotsComsEmulator.ScanBags(silent, startBag, endBag) -- silent will not create reports, used when initializing
+function  _self.ScanBags(silent, startBag, endBag) -- silent will not create reports, used when initializing
     local scanStart = _eval(startBag, startBag, -2)
     local scanEnd = _eval(endBag, endBag, 11)
     for i=scanStart, scanEnd do
-        PlayerbotsComsEmulator.ScanBagChanges(i, silent)
+        _self.ScanBagChanges(i, silent)
     end
 end
 
 
-function  PlayerbotsComsEmulator.ScanCurrencies(silent)
+function  _self.ScanCurrencies(silent)
     local money = GetMoney()
     local gold = floor(abs(money / 10000))
     local silver = floor(abs(mod(money / 100, 100)))
@@ -1322,8 +923,8 @@ function  PlayerbotsComsEmulator.ScanCurrencies(silent)
     end
 
     if not silent and shouldReportMoney then
-        local payload = _tconcat({CURRENCY_MONEY, tostring(gold), tostring(silver), tostring(copper) }, MSG_SEPARATOR) -- report gold changed
-        GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.CURRENCY, nil, payload)
+        local payload = _tconcat({_const.QUERY.CURRENCY_MONEY, tostring(gold), tostring(silver), tostring(copper) }, _const.MSG_SEPARATOR) -- report gold changed
+        GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.CURRENCY, nil, payload)
     end
 
     for index = 1, GetCurrencyListSize() do
@@ -1332,15 +933,15 @@ function  PlayerbotsComsEmulator.ScanCurrencies(silent)
             if _currencyCache.other[itemID] ~= count then
                 _currencyCache.other[itemID] = count
                 if not silent then
-                    local payload = _tconcat({CURRENCY_OTHER, tostring(itemID), tostring(count) }, MSG_SEPARATOR) -- report other currency changed
-                    GenerateMessage(MSG_HEADER.REPORT, REPORT_TYPE.CURRENCY, nil, payload)
+                    local payload = _tconcat({_const.QUERY.CURRENCY_OTHER, tostring(itemID), tostring(count) }, _const.MSG_SEPARATOR) -- report other currency changed
+                    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.CURRENCY, nil, payload)
                 end
             end
         end
     end
 end
 
-function PlayerbotsComsEmulator.FindItemByLink(link)
+function _self.FindItemByLink(link)
     if link and _parser.validateLink(link) then
         for bag=-2, 11 do
             local bagState = _bagstates[bag]
@@ -1354,7 +955,7 @@ function PlayerbotsComsEmulator.FindItemByLink(link)
     end
 end
 
-function PlayerbotsComsEmulator.FindEquipSlotByLink(link)
+function _self.FindEquipSlotByLink(link)
     if link and _parser.validateLink(link) then
         for eslot = 0, 20 do 
             local equipped = GetInventoryItemLink("player", eslot)

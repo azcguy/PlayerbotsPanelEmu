@@ -1,25 +1,22 @@
-ROOT_PATH     = "Interface\\AddOns\\PlayerbotsPanel\\"
-PlayerbotsPanelEmu    = AceLibrary("AceAddon-2.0"):new("AceConsole-2.0", "AceDB-2.0", "AceHook-2.1", "AceDebug-2.0", "AceEvent-2.0")
-PlayerbotsPanelEmuFrame    = CreateFrame("Frame", "PlayerbotsPanelEmuFrame", UIParent)
-PlayerbotsPanelEmu:RegisterDB("PlayerbotsPanelEmuDb", "PlayerbotsPanelEmuDbPerChar")
 
-local _frame = PlayerbotsPanelEmuFrame
-local _cfg = PlayerbotsPanelEmuConfig
+local _self = PlayerbotsPanelEmu
+local _frame = PlayerbotsPanelEmu.frame
+local _cfg = PlayerbotsPanelEmu.config
+local _emu = PlayerbotsPanelEmu.emulator
 local _debug = AceLibrary:GetInstance("AceDebug-2.0")
 local _dbchar = {}
 local _dbaccount = nil
-local _emu = PlayerbotsComsEmulator
 
 
 -- chat commands to control addon itself
-PlayerbotsPanelEmu.commands = {
+_self.commands = {
     type = 'group',
     args = {
         toggle = {
             name = "toggle",
             desc = "Toggle PlayerbotsPanel",
             type = 'execute',
-            func = function() PlayerbotsPanelEmu:OnClick() end
+            func = function() _self:OnClick() end
         },
         clearAll = {
             name = "clearall",
@@ -35,26 +32,26 @@ PlayerbotsPanelEmu.commands = {
     }
 }
 
-function PlayerbotsPanelEmu:OnInitialize()
+function _self:OnInitialize()
     print("Initialized")
     _debug:SetDebugging(true)
     _debug:SetDebugLevel(_cfg.debugLevel)
     _frame:HookScript("OnUpdate", PlayerbotsPanelEmu.Update)
     _dbchar = PlayerbotsPanelEmu.db.char
     _dbaccount = PlayerbotsPanelEmu.db.account
-    self:CreateWindow()
-    self:RegisterChatCommand("/ppemu", self.commands)
-    self:RegisterEvent("CHAT_MSG_ADDON")
-    self:RegisterEvent("PLAYER_LOGIN")
-    self:RegisterEvent("PLAYER_LOGOUT")
-    self:RegisterEvent("PLAYER_ENTERING_WORLD")
-    self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-    self:RegisterEvent("PLAYER_LEVEL_UP")
-    self:RegisterEvent("BAG_UPDATE")
-    self:RegisterEvent("BANKFRAME_OPENED")
-    self:RegisterEvent("BANKFRAME_CLOSED")
-    self:RegisterEvent("TRADE_ACCEPT_UPDATE")
-    self:RegisterEvent("EQUIP_BIND_CONFIRM")
+    _self:CreateWindow()
+    _self:RegisterChatCommand("/ppemu", _self.commands)
+    _self:RegisterEvent("CHAT_MSG_ADDON")
+    _self:RegisterEvent("PLAYER_LOGIN")
+    _self:RegisterEvent("PLAYER_LOGOUT")
+    _self:RegisterEvent("PLAYER_ENTERING_WORLD")
+    _self:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    _self:RegisterEvent("PLAYER_LEVEL_UP")
+    _self:RegisterEvent("BAG_UPDATE")
+    _self:RegisterEvent("BANKFRAME_OPENED")
+    _self:RegisterEvent("BANKFRAME_CLOSED")
+    _self:RegisterEvent("TRADE_ACCEPT_UPDATE")
+    _self:RegisterEvent("EQUIP_BIND_CONFIRM")
     _emu:Init()
 
     local botText = CreateFrame("Frame", nil, UIParent)
@@ -67,37 +64,37 @@ function PlayerbotsPanelEmu:OnInitialize()
     botText.text:SetTextColor(1, 0, 1 )
 end
 
-function PlayerbotsPanelEmu:EQUIP_BIND_CONFIRM(index)
+function _self:EQUIP_BIND_CONFIRM(index)
     EquipPendingItem(index)
 end
 
-function PlayerbotsPanelEmu:BAG_UPDATE(bagID)
+function _self:BAG_UPDATE(bagID)
     _emu.SetBagChanged(bagID)
 end
-function PlayerbotsPanelEmu:PLAYER_LOGIN()
+function _self:PLAYER_LOGIN()
     _emu:PLAYER_LOGIN()
 end
-function PlayerbotsPanelEmu:PLAYER_LOGOUT()
+function _self:PLAYER_LOGOUT()
     _emu:PLAYER_LOGOUT()
 end
 
-function PlayerbotsPanelEmu:BANKFRAME_OPENED()
+function _self:BANKFRAME_OPENED()
     _emu:BANKFRAME_OPENED()
 end
 
-function PlayerbotsPanelEmu:BANKFRAME_CLOSED()
+function _self:BANKFRAME_CLOSED()
     _emu:BANKFRAME_CLOSED()
 end
 
-function PlayerbotsPanelEmu:TRADE_ACCEPT_UPDATE(player, target)
+function _self:TRADE_ACCEPT_UPDATE(player, target)
     _emu:TRADE_ACCEPT_UPDATE(player, target)
 end
 
-function PlayerbotsPanelEmu:PLAYER_ENTERING_WORLD()
+function _self:PLAYER_ENTERING_WORLD()
     _frame:Show()
 end
 
-function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
+function _self:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
     local link = nil
     local count = 0
     if hasItem then
@@ -107,43 +104,43 @@ function PlayerbotsPanelEmu:PLAYER_EQUIPMENT_CHANGED(slot, hasItem)
     _emu:GenerateItemEquippedReport(slot, count, link)
 end
 
-function PlayerbotsPanelEmu:PLAYER_LEVEL_UP(levelFromEvent)
+function _self:PLAYER_LEVEL_UP(levelFromEvent)
     _emu:PLAYER_LEVEL_UP(levelFromEvent)
 end
 
-function PlayerbotsPanelEmu:OnEnable()
+function _self:OnEnable()
     self:SetDebugging(true)
     _frame:Show()
 end
 
-function PlayerbotsPanelEmu:OnShow()
+function _self:OnShow()
 end
 
-function PlayerbotsPanelEmu:OnHide()
+function _self:OnHide()
 end
 
-function PlayerbotsPanelEmu:OnDisable()
+function _self:OnDisable()
     self:SetDebugging(false) 
     _emu:PLAYER_LOGOUT()
 end
 
-function PlayerbotsPanelEmu:Update(elapsed)
+function _self:Update(elapsed)
     _emu:Update(elapsed)
 end
 
-function PlayerbotsPanelEmu:ClosePanel()
-	HideUIPanel(PlayerbotsPanelEmuFrame)
+function _self:ClosePanel()
+	HideUIPanel(_frame)
 end
 
-function PlayerbotsPanelEmu:print(t)
+function _self:print(t)
     DEFAULT_CHAT_FRAME:AddMessage("PlayerbotsPanelEmu: " .. t)
 end
 
-function PlayerbotsPanelEmu:CHAT_MSG_ADDON(prefix, message, channel, sender)
+function _self:CHAT_MSG_ADDON(prefix, message, channel, sender)
     _emu:CHAT_MSG_ADDON(prefix, message, channel, sender)
 end
 
-function PlayerbotsPanelEmu:OnClick()
+function _self:OnClick()
     if _frame:IsVisible() then
         _frame:Hide()
     else 
@@ -179,8 +176,7 @@ local function  DumpBagLinks()
 end
 
 
-
-function PlayerbotsPanelEmu:CreateWindow()
+function _self:CreateWindow()
     UIPanelWindows[_frame:GetName()] = { area = "center", pushable = 0, whileDead = 1 }
     tinsert(UISpecialFrames, _frame:GetName())
     _frame:SetFrameStrata("DIALOG")
@@ -237,5 +233,19 @@ function PlayerbotsPanelEmu:CreateWindow()
     end
 
     MakeButton("TestProtected", 0, currentY, 100, rowHeight, TestProtectedFunc)
+
+    local function DumpReputations()
+        local numFactions = GetNumFactions();
+        local factionName, _, _, _, _, barValue, _, _, isHeader, _, hasRep = GetFactionInfoByID(509)
+        print(factionName, barValue)
+        for i=1, numFactions do
+            local name, description, standingID, barMin, barMax, barValue, atWarWith, canToggleAtWar, isHeader, isCollapsed, hasRep, isWatched, isChild = GetFactionInfo(i);
+            if not isHeader then
+                print(name, barValue, PlayerbotsPanelEmu.broker.data.factionId.list[name][1])
+            end
+        end
+    end
+
+    MakeButton("Dump Rep", 100, currentY, 100, rowHeight, DumpReputations)
 
 end
