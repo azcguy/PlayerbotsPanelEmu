@@ -176,13 +176,13 @@ local function GenerateExperienceReport(levelFromEvent)
     bufferClear()
     bufferAdd_INT(level)
     bufferAdd_FLOAT(floatXp)
-    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT_TYPE.EXPERIENCE, 0, bufferToString())
+    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.EXPERIENCE, 0, bufferToString())
 end
 
 function _self:GenerateItemEquippedReport(slot, count, link)
     local finalLink = _eval(link, link, _const.NULL_LINK)
     local payload = _tconcat({slot, count, finalLink}, _const.MSG_SEPARATOR)
-    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT_TYPE.ITEM_EQUIPPED, 0, payload)
+    GenerateMessage(_const.MSG_HEADER.REPORT, _const.REPORT.ITEM_EQUIPPED, 0, payload)
 end
 
 function _self:Init()
